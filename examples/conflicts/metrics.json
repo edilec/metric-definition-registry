@@ -1,0 +1,41 @@
+{
+  "registryVersion": "1",
+  "metrics": [
+    {
+      "id": "revenue_daily",
+      "name": "revenue",
+      "grain": ["date"],
+      "aggregation": "sum",
+      "unit": "EUR",
+      "formula": "margin_daily + sum(cost_total)",
+      "filters": [],
+      "owner": "finance-analytics",
+      "dependsOn": ["margin_daily"],
+      "definitionVersion": "4"
+    },
+    {
+      "id": "revenue_by_region",
+      "name": "revenue",
+      "grain": ["date", "region"],
+      "aggregation": "sum",
+      "unit": "EUR",
+      "formula": "sum(order_total)",
+      "filters": [],
+      "owner": "finance-analytics",
+      "dependsOn": [],
+      "definitionVersion": "1"
+    },
+    {
+      "id": "margin_daily",
+      "name": "margin",
+      "grain": ["date"],
+      "aggregation": "sum",
+      "unit": "EUR",
+      "formula": "revenue_daily - sum(cost_total)",
+      "filters": [],
+      "owner": "finance-analytics",
+      "dependsOn": ["revenue_daily"],
+      "definitionVersion": "2"
+    }
+  ]
+}

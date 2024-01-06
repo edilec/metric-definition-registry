@@ -1,0 +1,42 @@
+{
+  "registryVersion": "1",
+  "metrics": [
+    {
+      "id": "orders_gross_daily",
+      "name": "gross orders",
+      "grain": ["date"],
+      "aggregation": "sum",
+      "unit": "EUR",
+      "formula": "sum(order_total)",
+      "filters": ["order_status = 'placed'"],
+      "owner": "analytics-platform",
+      "dependsOn": [],
+      "definitionVersion": "1"
+    },
+    {
+      "id": "orders_net_daily",
+      "name": "net orders",
+      "grain": ["date"],
+      "aggregation": "sum",
+      "unit": "EUR",
+      "formula": "orders_gross_daily - sum(refund_total) - sum(chargeback_total)",
+      "filters": ["order_status = 'placed'"],
+      "owner": "analytics-platform",
+      "dependsOn": ["orders_gross_daily"],
+      "definitionVersion": "3",
+      "description": "chargebacks joined the deduction in 2026-07"
+    },
+    {
+      "id": "orders_net_weekly",
+      "name": "net orders, weekly",
+      "grain": ["iso_week"],
+      "aggregation": "sum",
+      "unit": "EUR",
+      "formula": "sum(orders_net_daily)",
+      "filters": [],
+      "owner": "analytics-platform",
+      "dependsOn": ["orders_net_daily"],
+      "definitionVersion": "1"
+    }
+  ]
+}
