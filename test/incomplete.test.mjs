@@ -93,6 +93,31 @@ test('a duplicate metric id makes the index ambiguous, and nothing is analysed',
   assert.equal(report.findings.filter((item) => item.ruleId.startsWith('name-')).length, 0)
 })
 
+test('a definition the tool could not read is not put into the index under its id', async () => {
+  // The first entry is unreadable (no unit), the second is a valid definition
+  // with the same id. Indexing the unreadable one would make the second look
+  // like a duplicate, and the report would carry a second finding about a
+  // problem the registry does not have.
+  const broken = metric({ id: 'same' })
+  delete broken.unit
+  const report = await checkRegistry(await oneRegistry(registryDoc([broken, metric({ id: 'same' })])))
+
+  assert.deepEqual(report.findings.map((item) => item.ruleId), ['unit-undeclared'])
+  assert.equal(report.findings.filter((item) => item.ruleId === 'metric-id-duplicate').length, 0)
+  assert.equal(report.status, 'incomplete')
+})
+
+test('a list with an unusable entry is not judged as though the entry were absent', async () => {
+  // grain is ["date", 7, "date"]. Removing the unusable entry would leave two
+  // identical dimensions and produce a duplicate-dimension finding about a
+  // document that does not contain one.
+  const report = await checkRegistry(await oneRegistry(registryDoc([metric({ grain: ['date', 7, 'date'] })])))
+
+  assert.deepEqual(report.findings.map((item) => item.ruleId), ['metric-invalid'])
+  assert.equal(report.findings[0].location.pointer, '/metrics/0/grain/1')
+  assert.equal(report.status, 'incomplete')
+})
+
 test('one unusable definition stops the whole registry being analysed', async () => {
   // Analysing the rest would mean analysing a registry nobody wrote: the
   // unusable definition might have been the other end of a cycle.

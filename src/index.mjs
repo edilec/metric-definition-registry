@@ -451,7 +451,12 @@ function validateRegistry(document, file, limits) {
       }
     }
 
-    let usable = true
+    // Any problem at all means this definition is not indexed. The flag this
+    // replaces had to be set at nine separate sites, and forgetting one would
+    // put a definition the tool could not read into the index under an id it is
+    // not sure of -- where a later duplicate of that id would then be reported
+    // twice over, and a dependency could resolve to a definition nobody wrote.
+    const problemsBefore = problems.length
     for (const key of ['id', 'name', 'formula', 'owner', 'definitionVersion']) {
       if (!isUsableText(raw[key], limits.maxFieldLength)) {
         add({
@@ -459,12 +464,10 @@ function validateRegistry(document, file, limits) {
           pointer: `${pointer}/${key}`,
           message: `${key} must be a non-empty string of at most ${limits.maxFieldLength} characters that is still non-empty once control characters are removed`,
         })
-        usable = false
       }
     }
     if (raw.description !== undefined && !isUsableText(raw.description, limits.maxFieldLength)) {
       add({ ruleId: 'metric-invalid', pointer: `${pointer}/description`, message: 'description, when present, must be a usable string' })
-      usable = false
     }
 
     // Units and aggregation are explicit or they are unknown. Neither is
@@ -477,7 +480,6 @@ function validateRegistry(document, file, limits) {
         message: 'unit must be declared as a non-empty string; this tool does not infer one from the formula',
         suggestion: 'declare the unit the numbers are in, for example "EUR", "orders" or "ratio"',
       })
-      usable = false
     }
     if (!isUsableText(raw.aggregation, limits.maxFieldLength)) {
       add({
@@ -486,7 +488,6 @@ function validateRegistry(document, file, limits) {
         message: 'aggregation must be declared as a non-empty string; this tool does not infer one from the formula',
         suggestion: `declare one of ${SUPPORTED_AGGREGATIONS.join(', ')}`,
       })
-      usable = false
     } else if (!SUPPORTED_AGGREGATIONS.includes(raw.aggregation)) {
       add({
         ruleId: 'aggregation-unsupported',
@@ -494,20 +495,19 @@ function validateRegistry(document, file, limits) {
         message: `aggregation ${JSON.stringify(excerpt(raw.aggregation, 40))} is not one of ${SUPPORTED_AGGREGATIONS.join(', ')}; this tool does not guess what an aggregation it has not been taught computes`,
         suggestion: 'declare "custom" if the aggregation is genuinely outside this vocabulary',
       })
-      usable = false
     }
 
+    // `grain === null` means an entry was unusable, and the duplicate check is
+    // deliberately skipped then: judging a list with entries removed would
+    // report a duplicate the document does not contain.
     const grain = validateList(raw.grain, { pointer: `${pointer}/grain`, limits, add, what: 'grain' })
-    if (grain === null) usable = false
-    else if (new Set(grain).size !== grain.length) {
+    if (grain !== null && new Set(grain).size !== grain.length) {
       add({ ruleId: 'metric-invalid', pointer: `${pointer}/grain`, message: 'grain declares the same dimension more than once' })
-      usable = false
     }
 
     const filters = raw.filters === undefined
       ? []
       : validateList(raw.filters, { pointer: `${pointer}/filters`, limits, add, what: 'filters' })
-    if (filters === null) usable = false
 
     let dependsOn = null
     if (raw.dependsOn === undefined) {
@@ -520,13 +520,11 @@ function validateRegistry(document, file, limits) {
         message: 'dependsOn must be declared, as [] when the metric depends on no other metric in this registry',
         suggestion: 'declare "dependsOn": [] explicitly',
       })
-      usable = false
     } else {
       dependsOn = validateList(raw.dependsOn, { pointer: `${pointer}/dependsOn`, limits, add, what: 'dependsOn' })
-      if (dependsOn === null) usable = false
     }
 
-    if (!usable) continue
+    if (problems.length > problemsBefore) continue
 
     if (index.has(raw.id)) {
       // A duplicate id makes the index ambiguous. Keeping the last entry would

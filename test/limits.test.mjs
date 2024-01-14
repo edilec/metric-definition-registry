@@ -9,6 +9,9 @@
  */
 
 import assert from 'node:assert/strict'
+import { execFileSync, spawn } from 'node:child_process'
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import { ConfigError, DEFAULT_LIMITS, checkRegistry, exitCodeFor } from '../src/index.mjs'
@@ -48,10 +51,41 @@ test('maxDocumentBytes: one byte over the limit is refused, and nothing is analy
   const report = await checkRegistry({ root, registry: 'metrics.json', limits: { maxDocumentBytes: limit } })
 
   assert.deepEqual(report.findings.map((item) => item.ruleId), ['input-too-large'])
-  assert.match(report.findings[0].message, /401 bytes, over the 400 byte limit/)
+  // The exact sentence matters: "so it was not read" is the one the size check
+  // BEFORE the read produces. The check after the read has its own wording, and
+  // asserting a substring common to both would let either guard be removed
+  // while the other silently covered for it.
+  assert.equal(
+    report.findings[0].message,
+    'the registry is 401 bytes, over the 400 byte limit, so it was not read',
+  )
   assert.equal(report.status, 'incomplete')
   assert.equal(exitCodeFor(report), 2)
   assert.equal(report.summary.registryRead, false)
+})
+
+test('maxDocumentBytes: the check after the read catches what stat could not report', async () => {
+  // The two size checks cover for each other at N+1, so neither is defended by
+  // a plain over-limit file. A FIFO separates them: `stat` reports size 0, so
+  // the check before the read passes, and only the check after it sees the 401
+  // bytes that actually arrived. That is the case the second check exists for
+  // -- a file whose size when it was measured is not the size that was read.
+  const root = await makeRoot()
+  const fifo = join(root, 'metrics.json')
+  execFileSync('mkfifo', [fifo])
+  assert.equal((await stat(fifo)).size, 0, 'stat must under-report, or this test proves nothing')
+
+  const writer = spawn('sh', ['-c', `printf '%s' '${'x'.repeat(401)}' > ${JSON.stringify(fifo)}`], { stdio: 'ignore' })
+  try {
+    const report = await checkRegistry({ root, registry: 'metrics.json', limits: { maxDocumentBytes: 400 } })
+
+    assert.deepEqual(report.findings.map((item) => item.ruleId), ['input-too-large'])
+    assert.equal(report.findings[0].message, 'the registry is 401 bytes, over the 400 byte limit')
+    assert.equal(report.status, 'incomplete')
+    assert.equal(report.summary.registryRead, false)
+  } finally {
+    writer.kill()
+  }
 })
 
 test('maxMetrics: a registry of exactly the limit is validated', async () => {
