@@ -440,6 +440,13 @@ function validateRegistry(document, file, limits) {
       add({ ruleId: 'metric-invalid', pointer, message: 'a metric definition must be a JSON object' })
       continue
     }
+    // Any problem at all means this definition is not indexed -- including an
+    // unknown field, which is a definition this tool cannot claim to have read.
+    // The flag this replaces had to be set at nine separate sites, and
+    // forgetting one would put a definition the tool could not read into the
+    // index under an id it is not sure of, where a later duplicate of that id
+    // would then be reported twice over.
+    const problemsBefore = problems.length
     for (const key of Object.keys(raw)) {
       if (!METRIC_FIELDS.includes(key)) {
         add({
@@ -451,12 +458,6 @@ function validateRegistry(document, file, limits) {
       }
     }
 
-    // Any problem at all means this definition is not indexed. The flag this
-    // replaces had to be set at nine separate sites, and forgetting one would
-    // put a definition the tool could not read into the index under an id it is
-    // not sure of -- where a later duplicate of that id would then be reported
-    // twice over, and a dependency could resolve to a definition nobody wrote.
-    const problemsBefore = problems.length
     for (const key of ['id', 'name', 'formula', 'owner', 'definitionVersion']) {
       if (!isUsableText(raw[key], limits.maxFieldLength)) {
         add({
