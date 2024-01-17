@@ -188,11 +188,12 @@ function describeParseFailure(message) {
  * Describe a JSON parse failure without reproducing the document.
  *
  * V8 reports a parse failure two ways and one of them quotes the input it
- * choked on: `Unexpected token 'A', "AKIAIOSFODNN7EXAMPLE" is not valid JSON`,
- * or a ten-character prefix followed by `"..."`. A document short enough to be
- * only a credential is therefore reproduced in full by its own error message,
- * and truncating the front does not help: the quoted window is taken from
- * wherever the offence is, not from the start.
+ * choked on -- `Unexpected token`, the offending character, then a span of the
+ * document itself in double quotes, either whole or as a ten-character prefix
+ * followed by an ellipsis. A document short enough to be only an access key is
+ * therefore reproduced in full by its own error message, and truncating the
+ * front does not help: the quoted window is taken from wherever the offence is,
+ * not from the start.
  *
  * The closing guard is deliberate belt and braces, and it is the reason this
  * function is safe against wordings it has never seen: across the measured

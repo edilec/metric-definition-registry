@@ -8,8 +8,8 @@
  */
 
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { readdir, readFile } from 'node:fs/promises'
+import { basename, join, posix } from 'node:path'
 import test from 'node:test'
 
 import { DEFAULT_LIMITS, RULE_CATALOG, SUPPORTED_AGGREGATIONS, TOOL_ID } from '../src/index.mjs'
@@ -111,10 +111,57 @@ test('the README carries the sections a reader needs', async () => {
   }
 })
 
+/**
+ * Every file npm would publish, as a path relative to the project root.
+ *
+ * Derived from `package.json` `files` rather than written out, because a
+ * hand-written list is a list that stops matching the package the day somebody
+ * adds a directory to it -- which is exactly what happened here: the list named
+ * four documents while `files` publishes `bin`, `src`, `examples` and `docs`,
+ * so the credential scan below never looked at a single line of shipped source.
+ * `package.json` itself is always published whether or not it is listed.
+ */
+async function publishedFiles() {
+  const manifest = await readPackage()
+  const found = []
+  const visit = async (relative) => {
+    let entries
+    try {
+      entries = await readdir(join(PROJECT, relative), { withFileTypes: true })
+    } catch (error) {
+      if (error.code === 'ENOTDIR') {
+        found.push(relative)
+        return
+      }
+      throw error
+    }
+    for (const entry of entries.sort((left, right) => (left.name < right.name ? -1 : 1))) {
+      await visit(posix.join(relative, entry.name))
+    }
+  }
+  for (const entry of [...manifest.files, 'package.json']) await visit(entry)
+  return found.sort()
+}
+
+test('the published-file list is derived from the package, not from a hand-written list', async () => {
+  const published = await publishedFiles()
+  // The companion to the absence assertions below: a scan over an empty or
+  // truncated list passes for the wrong reason. These are the files that were
+  // outside the old hand-written list, and the source one is the file that
+  // carried a key-shaped literal past it.
+  for (const name of ['src/text.mjs', 'src/index.mjs', 'src/graph.mjs', 'bin/metric-definition-registry.mjs', 'LICENSE', 'package.json']) {
+    assert.ok(published.includes(name), `${name} is published and would not be scanned`)
+  }
+  assert.ok(published.length >= 12, `only ${published.length} published file(s) were enumerated`)
+})
+
 test('no file in the published tree names a person, a credential or a host', async () => {
   // The catalogue rule: nothing that looks like a real record, anywhere. Owners
-  // in every fixture and example are teams, never people.
-  for (const name of ['README.md', 'docs/rules.md', 'CHANGELOG.md', 'package.json', 'examples/valid/metrics.2026-07.json', 'examples/conflicts/metrics.json']) {
+  // in every fixture and example are teams, never people. This walks the whole
+  // published tree -- source, binary entry point, examples and documents alike
+  // -- because a key-shaped literal in a source comment ships exactly as far as
+  // one in the README.
+  for (const name of await publishedFiles()) {
     const text = await readProjectFile(name)
     assert.ok(!/AKIA[0-9A-Z]{16}/.test(text), `${name} carries something shaped like a key`)
     assert.ok(!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(text), `${name} carries a private key block`)
