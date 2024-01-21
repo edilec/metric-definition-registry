@@ -148,6 +148,14 @@ With `--previous`, each definition that exists in both is compared field by
 field, and the rule id records whether `definitionVersion` moved with the
 change. The full table is in [docs/rules.md](docs/rules.md).
 
+Values are compared **as this report renders them**. A unit of `EUR` and a unit
+of `EUR ` are different strings that render identically, and reporting that as
+`changed unit from EUR to EUR` at error severity would send somebody to fix a
+registry whose units nobody can see change. The difference is still reported —
+as `changed-invisibly` within a comparison, or `name-differs-invisibly` within
+one registry — at warning severity, naming the field and the first differing
+code point instead of printing two values that look the same.
+
 ## Rules
 
 | Rule | Severity | Makes the run incomplete | What it means |
@@ -156,6 +164,7 @@ change. The full table is in [docs/rules.md](docs/rules.md).
 | `aggregation-changed-undeclared` | error | no | The aggregation changed and `definitionVersion` did not move. |
 | `aggregation-undeclared` | error | yes | A definition does not declare an aggregation. |
 | `aggregation-unsupported` | error | yes | A definition declares an aggregation outside the vocabulary. |
+| `changed-invisibly` | warning | no | A field changed only in characters this report removes, so the two values render identically. |
 | `dependencies-changed-declared` | info | no | The dependency set changed and `definitionVersion` moved with it. |
 | `dependencies-changed-undeclared` | error | no | The dependency set changed and `definitionVersion` did not move. |
 | `dependencies-undeclared` | error | yes | A definition has no `dependsOn`. An absent list is not an empty list. |
@@ -180,6 +189,7 @@ change. The full table is in [docs/rules.md](docs/rules.md).
 | `name-aggregation-conflict` | error | no | Two definitions share a name and aggregate differently. |
 | `name-changed-declared` | info | no | The name changed and `definitionVersion` moved with it. |
 | `name-changed-undeclared` | error | no | The name changed and `definitionVersion` did not move. |
+| `name-differs-invisibly` | warning | no | Two definitions share a name and one of their values differs only in characters this report removes. |
 | `name-grain-conflict` | error | no | Two definitions share a name and are defined at different grains. |
 | `name-reused` | warning | no | Two definitions share a name and agree about grain, unit and aggregation. |
 | `name-unit-conflict` | error | no | Two definitions share a name and are measured in different units. |

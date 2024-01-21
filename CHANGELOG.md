@@ -15,6 +15,13 @@ is recorded here.
   formula, filters, owner, dependencies and definition version.
 - Flag two definitions that share a name but disagree about grain, unit or
   aggregation, and note a name that two definitions share while agreeing.
+  Definitions are grouped by the name as the report renders it, so a trailing
+  space does not split one shared name into two unrelated metrics.
+- Compare every single-value field as the report renders it. Two values that
+  differ only in characters the report removes -- a trailing space, a NEL, a
+  bidi mark -- give `changed-invisibly` or `name-differs-invisibly` at warning
+  severity, naming the field and the first differing code point, instead of a
+  value change whose own evidence shows the two values alike.
 - Find dependency cycles with an iterative search, so a chain deeper than the
   call stack is a report rather than a crash. Each cycle is reported once,
   rotated to a canonical first member.
@@ -29,5 +36,5 @@ is recorded here.
   findings, each enforced before the work it bounds.
 - Input paths confined to `--root`, by lexical check and by resolved real path,
   so a symbolic link out of the root is refused.
-- A 43-rule catalogue with one frozen severity table, documented in
+- A 45-rule catalogue with one frozen severity table, documented in
   `docs/rules.md` and in the README.

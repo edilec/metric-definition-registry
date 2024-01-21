@@ -23,7 +23,8 @@ import { isAbsolute, resolve, sep } from 'node:path'
 
 import { findCycles } from './graph.mjs'
 import {
-  byCodeUnit, decodeUtf8, excerpt, isPlainObject, isUsableText, parseFailureDetail,
+  byCodeUnit, compareAsRendered, decodeUtf8, describeCharacterDifference,
+  excerpt, isPlainObject, isUsableText, parseFailureDetail,
 } from './text.mjs'
 
 export { byCodeUnit, excerpt, isUsableText, parseFailureDetail, renderable } from './text.mjs'
@@ -85,6 +86,7 @@ const RULE_SEVERITY = Object.freeze({
   'aggregation-changed-undeclared': 'error',
   'aggregation-undeclared': 'error',
   'aggregation-unsupported': 'error',
+  'changed-invisibly': 'warning',
   'dependencies-changed-declared': 'info',
   'dependencies-changed-undeclared': 'error',
   'dependencies-undeclared': 'error',
@@ -109,6 +111,7 @@ const RULE_SEVERITY = Object.freeze({
   'name-aggregation-conflict': 'error',
   'name-changed-declared': 'info',
   'name-changed-undeclared': 'error',
+  'name-differs-invisibly': 'warning',
   'name-grain-conflict': 'error',
   'name-reused': 'warning',
   'name-unit-conflict': 'error',
@@ -563,10 +566,28 @@ const asSet = (entries) => [...entries].sort(byCodeUnit).join(', ')
  * Analyse one complete registry: name conflicts, duplicate edges, and -- only
  * when every edge resolves -- dependency cycles.
  */
-function analyseRegistry(registry, file) {
+function analyseRegistry(registry, file, limits) {
   const findings = []
   const add = (options) => findings.push(finding({ file, ...options }))
   const ids = [...registry.order].sort(byCodeUnit)
+
+  /**
+   * Two values this report renders identically, that are not the same string.
+   *
+   * Saying "defined in EUR and in EUR" is worse than saying nothing: the reader
+   * is told two values differ and is shown two values that do not. So the
+   * finding names the field and the first differing code point instead, which
+   * is the one fact that makes the difference actionable, and it is a warning
+   * rather than an error because nothing a consumer of these numbers can see
+   * has changed.
+   */
+  const addInvisible = ({ pointer, what, name, left, right, leftValue, rightValue }) => add({
+    ruleId: 'name-differs-invisibly',
+    pointer,
+    message: `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(left.id, 40))} and by ${JSON.stringify(excerpt(right.id, 40))} with ${what} values this report renders identically, so they are not the same string and the difference is in characters this report removes`,
+    evidence: `${what}: ${describeCharacterDifference(leftValue, rightValue)}`,
+    suggestion: 'remove the stray character, or give the two definitions names that read differently',
+  })
 
   // Name conflicts. A name is how a metric is cited in a dashboard, a ticket
   // and a conversation; two definitions answering to one name must agree about
@@ -574,8 +595,14 @@ function analyseRegistry(registry, file) {
   const byName = new Map()
   for (const id of ids) {
     const metric = registry.index.get(id)
-    if (!byName.has(metric.name)) byName.set(metric.name, [])
-    byName.get(metric.name).push(metric)
+    // Grouped by the name as this report RENDERS it. Two definitions whose
+    // names differ only by a trailing space answer to one name in every place a
+    // person can see -- this report, a dashboard, a ticket -- so grouping by the
+    // raw string would print the same word twice and report
+    // `namesSharedBySeveralMetrics: 0` underneath it.
+    const shown = excerpt(metric.name, limits.maxFieldLength)
+    if (!byName.has(shown)) byName.set(shown, [])
+    byName.get(shown).push(metric)
   }
   let namesSharedBySeveralMetrics = 0
   for (const name of [...byName.keys()].sort(byCodeUnit)) {
@@ -596,7 +623,14 @@ function analyseRegistry(registry, file) {
           suggestion: 'give the two definitions different names, or put the grain in the name',
         })
       }
-      if (first.unit !== other.unit) {
+      // Grouped by the rendered name, so any remaining difference between the
+      // two raw names is one this report cannot show.
+      if (first.name !== other.name) {
+        conflicted = true
+        addInvisible({ pointer, what: 'name', name, left: first, right: other, leftValue: first.name, rightValue: other.name })
+      }
+      const unitRelation = compareAsRendered(first.unit, other.unit, limits.maxFieldLength)
+      if (unitRelation === 'different') {
         conflicted = true
         add({
           ruleId: 'name-unit-conflict',
@@ -604,7 +638,14 @@ function analyseRegistry(registry, file) {
           message: `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(first.id, 40))} in ${excerpt(first.unit, 40)} and by ${JSON.stringify(excerpt(other.id, 40))} in ${excerpt(other.unit, 40)}`,
           evidence: `${excerpt(first.unit, 60)} | ${excerpt(other.unit, 60)}`,
         })
+      } else if (unitRelation === 'stripped-only') {
+        conflicted = true
+        addInvisible({ pointer, what: 'unit', name, left: first, right: other, leftValue: first.unit, rightValue: other.unit })
       }
+      // Aggregation gets no stripped-only branch on purpose: the vocabulary is
+      // closed and every member of it is plain lowercase ASCII, so two
+      // aggregations that render identically ARE identical. A branch that can
+      // never be taken is a guard nothing calls.
       if (first.aggregation !== other.aggregation) {
         conflicted = true
         add({
@@ -681,15 +722,26 @@ function analyseRegistry(registry, file) {
   return { findings, graphComplete, cycles, namesSharedBySeveralMetrics }
 }
 
-/** The fields whose change alters what a number means or how it is cited. */
+/**
+ * The fields whose change alters what a number means or how it is cited.
+ *
+ * `comparedAsRendered` marks a field whose two values may be compared after
+ * rendering. It is true only for a field that is ONE string: a list rendered
+ * into one string can collide with a different list for reasons that have
+ * nothing to do with stripped characters, so `stripped-only` would be a wrong
+ * answer for `grain`, `filters` and `dependencies`. Aggregation is one string
+ * and is still false, because its vocabulary is closed and every member of it is
+ * plain lowercase ASCII -- two aggregations this report renders identically are
+ * identical, so the branch could never be taken.
+ */
 const SEMANTIC_FIELDS = Object.freeze([
-  { key: 'name', rule: 'name-changed', render: (metric) => metric.name },
-  { key: 'grain', rule: 'grain-changed', render: (metric) => asSet(metric.grain) || 'none' },
-  { key: 'aggregation', rule: 'aggregation-changed', render: (metric) => metric.aggregation },
-  { key: 'unit', rule: 'unit-changed', render: (metric) => metric.unit },
-  { key: 'formula', rule: 'formula-changed', render: (metric) => metric.formula },
-  { key: 'filters', rule: 'filters-changed', render: (metric) => metric.filters.join(' AND ') || 'none' },
-  { key: 'dependencies', rule: 'dependencies-changed', render: (metric) => asSet(metric.dependsOn) || 'none' },
+  { key: 'name', rule: 'name-changed', comparedAsRendered: true, render: (metric) => metric.name },
+  { key: 'grain', rule: 'grain-changed', comparedAsRendered: false, render: (metric) => asSet(metric.grain) || 'none' },
+  { key: 'aggregation', rule: 'aggregation-changed', comparedAsRendered: false, render: (metric) => metric.aggregation },
+  { key: 'unit', rule: 'unit-changed', comparedAsRendered: true, render: (metric) => metric.unit },
+  { key: 'formula', rule: 'formula-changed', comparedAsRendered: true, render: (metric) => metric.formula },
+  { key: 'filters', rule: 'filters-changed', comparedAsRendered: false, render: (metric) => metric.filters.join(' AND ') || 'none' },
+  { key: 'dependencies', rule: 'dependencies-changed', comparedAsRendered: false, render: (metric) => asSet(metric.dependsOn) || 'none' },
 ])
 
 /** The exact value compared for a field. Filters keep their order; sets do not have one. */
@@ -706,10 +758,29 @@ function comparableValue(metric, key, render) {
  * whether their order matters -- so a reordering is reported, and the message
  * says it was a reordering rather than implying the expressions changed.
  */
-function compareRegistries(previous, current, files) {
+function compareRegistries(previous, current, files, limits) {
   const findings = []
   const counts = { metricsAdded: 0, metricsRemoved: 0, metricsChanged: 0 }
   const ids = [...new Set([...previous.order, ...current.order])].sort(byCodeUnit)
+
+  /**
+   * A difference this report cannot show, said as what it is.
+   *
+   * `changed unit from EUR to EUR` at error severity is the sentence this
+   * replaces: the message and the evidence contradict each other, and the
+   * reader is sent to fix a definition whose unit nobody can see change. The
+   * finding is kept -- the two documents really do differ -- but it names the
+   * field and the first differing code point, and it is a warning, because
+   * nothing a consumer of these numbers can see moved.
+   */
+  const addInvisible = ({ id, pointer, what, before, after }) => findings.push(finding({
+    ruleId: 'changed-invisibly',
+    file: files.registry,
+    pointer,
+    message: `${JSON.stringify(excerpt(id, 60))} changed ${what} only in characters this report removes, so the two values render identically here; this is an editing difference in the document, not a change of ${what}`,
+    evidence: `${what}: ${describeCharacterDifference(before, after)}`,
+    suggestion: 'remove the stray character, or if the difference is deliberate make the two values read differently',
+  }))
 
   for (const id of ids) {
     const was = previous.index.get(id)
@@ -737,11 +808,23 @@ function compareRegistries(previous, current, files) {
     }
 
     const pointer = `/metrics/${now.position}`
-    const declared = was.definitionVersion !== now.definitionVersion
+    // A definitionVersion that differs only in characters this report removes
+    // has not moved in any way a reader can check, so it does not license a
+    // change either -- treating it as moved would downgrade every accompanying
+    // finding from error to info.
+    const versionRelation = compareAsRendered(was.definitionVersion, now.definitionVersion, limits.maxFieldLength)
+    const declared = versionRelation === 'different'
+    if (versionRelation === 'stripped-only') {
+      addInvisible({ id, pointer, what: 'definitionVersion', before: was.definitionVersion, after: now.definitionVersion })
+    }
     let changed = false
 
     for (const field of SEMANTIC_FIELDS) {
       if (comparableValue(was, field.key, field.render) === comparableValue(now, field.key, field.render)) continue
+      if (field.comparedAsRendered && compareAsRendered(field.render(was), field.render(now), limits.maxFieldLength) === 'stripped-only') {
+        addInvisible({ id, pointer, what: field.key, before: field.render(was), after: field.render(now) })
+        continue
+      }
       changed = true
       const reordered = field.key === 'filters' && asSet(was.filters) === asSet(now.filters)
       findings.push(finding({
@@ -756,7 +839,10 @@ function compareRegistries(previous, current, files) {
       }))
     }
 
-    if (was.owner !== now.owner) {
+    const ownerRelation = compareAsRendered(was.owner, now.owner, limits.maxFieldLength)
+    if (ownerRelation === 'stripped-only') {
+      addInvisible({ id, pointer, what: 'owner', before: was.owner, after: now.owner })
+    } else if (ownerRelation === 'different') {
       findings.push(finding({
         ruleId: 'owner-changed',
         file: files.registry,
@@ -823,13 +909,13 @@ export async function checkRegistry(options = {}) {
 
   let analysis = null
   if (current !== undefined) {
-    analysis = analyseRegistry(current, files.registry)
+    analysis = analyseRegistry(current, files.registry, limits)
     findings.push(...analysis.findings)
   }
 
   let comparison = null
   if (current !== undefined && earlier !== undefined) {
-    comparison = compareRegistries(earlier, current, files)
+    comparison = compareRegistries(earlier, current, files, limits)
     findings.push(...comparison.findings)
   }
 

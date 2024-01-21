@@ -12,7 +12,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { CONTROL_CLASSES, excerpt, hasForbiddenCharacter, isUsableText } from '../src/text.mjs'
+import {
+  CONTROL_CLASSES, compareAsRendered, describeCharacterDifference, excerpt, isUsableText,
+} from '../src/text.mjs'
 import { checkRegistry, formatReport } from '../src/index.mjs'
 import { metric, oneRegistry, registryDoc, runCli } from './support.mjs'
 
@@ -126,6 +128,23 @@ test('excerpt bounds what it renders and reports the truncation', () => {
   assert.equal(excerpt('x'.repeat(10), 5), 'xxxxx...')
   assert.equal(excerpt('x'.repeat(5), 5), 'xxxxx')
   assert.throws(() => excerpt('x', 0), TypeError)
-  assert.equal(hasForbiddenCharacter(`a${String.fromCharCode(0x009b)}b`), true)
-  assert.equal(hasForbiddenCharacter('plain'), false)
+})
+
+test('compareAsRendered separates a real change from one the report cannot show', () => {
+  assert.equal(compareAsRendered('kWh', 'kWh', 40), 'same')
+  assert.equal(compareAsRendered('kWh', 'MWh', 40), 'different')
+  // The emblem of the class: a plain trailing space, no control character.
+  assert.equal(compareAsRendered('EUR', 'EUR ', 40), 'stripped-only')
+  assert.equal(compareAsRendered('EUR', `EUR${String.fromCharCode(0x0085)}`, 40), 'stripped-only')
+  assert.equal(compareAsRendered('EUR', `EUR${String.fromCharCode(0x202e)}`, 40), 'stripped-only')
+  // Collapsed whitespace counts too: the report shows one space either way.
+  assert.equal(compareAsRendered('a b', 'a  b', 40), 'stripped-only')
+})
+
+test('describeCharacterDifference names the position and the code point on each side', () => {
+  assert.equal(describeCharacterDifference('EUR', 'EUR '), 'at character 4: before the end of the value, after U+0020')
+  assert.equal(describeCharacterDifference('EUR ', 'EUR'), 'at character 4: before U+0020, after the end of the value')
+  assert.equal(describeCharacterDifference('a b', 'a  b'), 'at character 3: before U+0062, after U+0020')
+  // By code point, so an astral character counts once rather than twice.
+  assert.equal(describeCharacterDifference('\u{1f600}a', '\u{1f600}b'), 'at character 2: before U+0061, after U+0062')
 })

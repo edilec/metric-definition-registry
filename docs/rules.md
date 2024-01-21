@@ -53,6 +53,56 @@ A `definitionVersion` that moves with nothing else changing is not reported.
 Re-versioning a definition ahead of a change is ordinary work, and nagging about
 it would be a finding on correct input.
 
+## A difference this report cannot show
+
+Every string that comes out of a registry is rendered before it reaches the
+report: control characters, bidi marks and U+2028/U+2029 are removed, runs of
+whitespace are collapsed to one space, and the result is trimmed. So two values
+can be different strings and still render identically — `EUR` and `EUR ` are the
+plainest case, and no control character is needed to reach it.
+
+Comparing the raw strings and then printing the rendered ones produces a finding
+that contradicts its own evidence:
+
+```
+ERROR  unit-changed-undeclared  "rev" changed unit from EUR to EUR
+       evidence: EUR | EUR
+```
+
+That is an error-severity finding, exit 1, on a registry whose units nobody can
+see change. It is the worst shape a checker has: it sends somebody to fix
+correct data, and they cannot see what to fix.
+
+So every single-value field is compared **as it will be rendered**, and a
+difference that survives only in removed characters gets its own rule —
+`changed-invisibly` across registries, `name-differs-invisibly` within one — at
+warning severity, exit 0. The difference is still reported, because the two
+documents really do differ. What changes is the sentence: instead of a value
+change nobody can see, the finding names the field and the first differing code
+point.
+
+```
+WARN   changed-invisibly  "rev" changed unit only in characters this report
+                          removes, so the two values render identically here
+       evidence: unit: at character 4: before the end of the value, after U+0020
+```
+
+Two consequences worth stating:
+
+- Definitions are grouped by name **as rendered**, so two definitions whose
+  names differ only by a trailing space are one shared name, not two unrelated
+  metrics under a report that prints the same word twice.
+- A `definitionVersion` that differs only in removed characters has not moved.
+  Treating it as moved would downgrade every accompanying finding from error to
+  info.
+
+`grain`, `filters` and `dependsOn` are lists, and a list rendered into one
+string can collide with a different list for reasons that have nothing to do
+with removed characters. They are therefore not compared this way.
+`aggregation` is a single string and is also excluded, because its vocabulary is
+closed and every member of it is plain lowercase ASCII — two aggregations that
+render identically are identical.
+
 ## Rules
 
 | Rule | Severity | Makes the run incomplete | What it means |
@@ -61,6 +111,7 @@ it would be a finding on correct input.
 | `aggregation-changed-undeclared` | error | no | The aggregation changed and `definitionVersion` did not move. |
 | `aggregation-undeclared` | error | yes | A definition does not declare an aggregation. This tool does not infer one from the formula. |
 | `aggregation-unsupported` | error | yes | A definition declares an aggregation outside the vocabulary. Declare `custom` if it genuinely is. |
+| `changed-invisibly` | warning | no | A field changed only in characters this report removes, so the two values render identically. The finding names the field and the first differing code point. |
 | `dependencies-changed-declared` | info | no | The dependency set changed and `definitionVersion` moved with it. |
 | `dependencies-changed-undeclared` | error | no | The dependency set changed and `definitionVersion` did not move. |
 | `dependencies-undeclared` | error | yes | A definition has no `dependsOn`. An absent list is not an empty list. |
@@ -85,6 +136,7 @@ it would be a finding on correct input.
 | `name-aggregation-conflict` | error | no | Two definitions share a name and aggregate differently. |
 | `name-changed-declared` | info | no | The name changed and `definitionVersion` moved with it. |
 | `name-changed-undeclared` | error | no | The name changed and `definitionVersion` did not move. |
+| `name-differs-invisibly` | warning | no | Two definitions share a name and one of their values differs only in characters this report removes. |
 | `name-grain-conflict` | error | no | Two definitions share a name and are defined at different grains. |
 | `name-reused` | warning | no | Two definitions share a name and agree about grain, unit and aggregation. They are still separate ids. |
 | `name-unit-conflict` | error | no | Two definitions share a name and are measured in different units. |
