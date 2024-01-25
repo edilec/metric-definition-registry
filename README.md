@@ -84,7 +84,7 @@ parser. `stderr` carries the human summary; `--json` silences it.
 | --- | --- | --- |
 | `id` | yes | The stable identity. Dependencies name this. |
 | `name` | yes | How the metric is cited by people and dashboards. |
-| `grain` | yes | The dimensions it is defined at, as an array. `[]` is a scalar over the whole dataset, and it is a declared answer. |
+| `grain` | yes | The dimensions it is defined at, as an array. `[]` is a scalar over the whole dataset, and it is a declared answer. Compared entry by entry, so `["date, region"]` is one dimension and `["date", "region"]` is two. |
 | `aggregation` | yes | One of the vocabulary below. |
 | `unit` | yes | What the numbers are in: `EUR`, `orders`, `ratio`, anything non-empty. |
 | `formula` | yes | Opaque text. Compared, never parsed. |
@@ -183,7 +183,7 @@ code point instead of printing two values that look the same.
 | `input-unreadable` | error | yes | A registry could not be opened. |
 | `metric-added` | info | no | A definition is new since the previous registry. |
 | `metric-id-duplicate` | error | yes | An id is declared twice, so an index by id is ambiguous. |
-| `metric-invalid` | error | yes | A definition is unusable: not an object, a missing or mistyped field, over `--max-field-length`, or a value that renders empty. |
+| `metric-invalid` | error | yes | A definition is unusable: not an object, a missing or mistyped field, over `--max-field-length`, a value that renders empty, or two grain entries that render identically. |
 | `metric-removed` | error | no | A definition that existed is gone. |
 | `metric-unknown-field` | error | yes | A definition declares a field this tool does not understand. |
 | `name-aggregation-conflict` | error | no | Two definitions share a name and aggregate differently. |

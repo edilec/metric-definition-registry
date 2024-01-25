@@ -23,7 +23,8 @@ import { isAbsolute, resolve, sep } from 'node:path'
 
 import { findCycles } from './graph.mjs'
 import {
-  byCodeUnit, compareAsRendered, decodeUtf8, describeCharacterDifference,
+  byCodeUnit, compareAsRendered, compareEntriesAsRendered, decodeUtf8,
+  describeCharacterDifference, describeEntryDifference,
   excerpt, isPlainObject, isUsableText, parseFailureDetail,
 } from './text.mjs'
 
@@ -505,8 +506,12 @@ function validateRegistry(document, file, limits) {
     // deliberately skipped then: judging a list with entries removed would
     // report a duplicate the document does not contain.
     const grain = validateList(raw.grain, { pointer: `${pointer}/grain`, limits, add, what: 'grain' })
-    if (grain !== null && new Set(grain).size !== grain.length) {
-      add({ ruleId: 'metric-invalid', pointer: `${pointer}/grain`, message: 'grain declares the same dimension more than once' })
+    // Duplicates are judged on the RENDERED entry: `["date", "date "]` is one
+    // dimension written twice everywhere a person can look, and leaving it
+    // alone put two entries that both read `"date"` into the report with
+    // nothing saying they were meant to be different.
+    if (grain !== null && new Set(grain.map((entry) => excerpt(entry, limits.maxFieldLength))).size !== grain.length) {
+      add({ ruleId: 'metric-invalid', pointer: `${pointer}/grain`, message: 'grain declares the same dimension more than once, or two dimensions this report renders identically' })
     }
 
     const filters = raw.filters === undefined
@@ -559,8 +564,21 @@ function validateRegistry(document, file, limits) {
   return ok ? { ok, problems, index, order: [...index.keys()], document } : { ok, problems }
 }
 
-/** A grain or a dependency set, rendered in one canonical order for comparison. */
-const asSet = (entries) => [...entries].sort(byCodeUnit).join(', ')
+/**
+ * A grain, a filter list or a dependency set, rendered for a reader.
+ *
+ * Each entry is quoted, so the rendering says how many entries there are.
+ * Joining them bare produced one string for two different lists --
+ * `["date, region"]` and `["date", "region"]` both read `date, region` -- and
+ * the report then printed that one string on both sides of a difference it had
+ * just refused to call a difference. A set is sorted into one canonical order
+ * first; an ordered list keeps the order it was written in.
+ */
+function renderEntries(entries, limit, ordered) {
+  if (entries.length === 0) return 'none'
+  const shown = ordered ? entries : [...entries].sort(byCodeUnit)
+  return shown.map((entry) => JSON.stringify(excerpt(entry, limit))).join(ordered ? ' AND ' : ', ')
+}
 
 /**
  * Analyse one complete registry: name conflicts, duplicate edges, and -- only
@@ -581,11 +599,11 @@ function analyseRegistry(registry, file, limits) {
    * rather than an error because nothing a consumer of these numbers can see
    * has changed.
    */
-  const addInvisible = ({ pointer, what, name, left, right, leftValue, rightValue }) => add({
+  const addInvisible = ({ pointer, what, name, left, right, difference }) => add({
     ruleId: 'name-differs-invisibly',
     pointer,
     message: `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(left.id, 40))} and by ${JSON.stringify(excerpt(right.id, 40))} with ${what} values this report renders identically, so they are not the same string and the difference is in characters this report removes`,
-    evidence: `${what}: ${describeCharacterDifference(leftValue, rightValue)}`,
+    evidence: `${what}: ${difference}`,
     suggestion: 'remove the stray character, or give the two definitions names that read differently',
   })
 
@@ -613,21 +631,35 @@ function analyseRegistry(registry, file, limits) {
     let conflicted = false
     for (const other of rest) {
       const pointer = `/metrics/${other.position}`
-      if (asSet(first.grain) !== asSet(other.grain)) {
+      // Compared entry by entry. Joined into one string, `["date, region"]`
+      // and `["date", "region"]` are equal, and this branch then falls through
+      // to name-reused asserting POSITIVELY that the two "agree about grain".
+      const grainRelation = compareEntriesAsRendered(first.grain, other.grain, limits.maxFieldLength, { ordered: false })
+      if (grainRelation === 'different') {
         conflicted = true
         add({
           ruleId: 'name-grain-conflict',
           pointer,
-          message: `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(first.id, 40))} at grain (${excerpt(asSet(first.grain), 60) || 'none'}) and by ${JSON.stringify(excerpt(other.id, 40))} at grain (${excerpt(asSet(other.grain), 60) || 'none'}); one name cannot mean two grains`,
-          evidence: `${excerpt(asSet(first.grain), 60) || 'none'} | ${excerpt(asSet(other.grain), 60) || 'none'}`,
+          message: `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(first.id, 40))} at grain (${renderEntries(first.grain, 60, false)}) and by ${JSON.stringify(excerpt(other.id, 40))} at grain (${renderEntries(other.grain, 60, false)}); one name cannot mean two grains`,
+          evidence: `${renderEntries(first.grain, 60, false)} | ${renderEntries(other.grain, 60, false)}`,
           suggestion: 'give the two definitions different names, or put the grain in the name',
+        })
+      } else if (grainRelation === 'stripped-only') {
+        conflicted = true
+        addInvisible({
+          pointer,
+          what: 'grain',
+          name,
+          left: first,
+          right: other,
+          difference: describeEntryDifference(first.grain, other.grain, { ordered: false }),
         })
       }
       // Grouped by the rendered name, so any remaining difference between the
       // two raw names is one this report cannot show.
       if (first.name !== other.name) {
         conflicted = true
-        addInvisible({ pointer, what: 'name', name, left: first, right: other, leftValue: first.name, rightValue: other.name })
+        addInvisible({ pointer, what: 'name', name, left: first, right: other, difference: describeCharacterDifference(first.name, other.name) })
       }
       const unitRelation = compareAsRendered(first.unit, other.unit, limits.maxFieldLength)
       if (unitRelation === 'different') {
@@ -640,7 +672,7 @@ function analyseRegistry(registry, file, limits) {
         })
       } else if (unitRelation === 'stripped-only') {
         conflicted = true
-        addInvisible({ pointer, what: 'unit', name, left: first, right: other, leftValue: first.unit, rightValue: other.unit })
+        addInvisible({ pointer, what: 'unit', name, left: first, right: other, difference: describeCharacterDifference(first.unit, other.unit) })
       }
       // Aggregation gets no stripped-only branch on purpose: the vocabulary is
       // closed and every member of it is plain lowercase ASCII, so two
@@ -725,28 +757,52 @@ function analyseRegistry(registry, file, limits) {
 /**
  * The fields whose change alters what a number means or how it is cited.
  *
- * `comparedAsRendered` marks a field whose two values may be compared after
- * rendering. It is true only for a field that is ONE string: a list rendered
- * into one string can collide with a different list for reasons that have
- * nothing to do with stripped characters, so `stripped-only` would be a wrong
- * answer for `grain`, `filters` and `dependencies`. Aggregation is one string
- * and is still false, because its vocabulary is closed and every member of it is
- * plain lowercase ASCII -- two aggregations this report renders identically are
- * identical, so the branch could never be taken.
+ * `entries` is `null` for a field that is one string and returns the array for
+ * a field that is a list. Nothing here renders a list into one string before
+ * comparing it: `["date, region"]` and `["date", "region"]` join to the same
+ * text, which made two genuinely different grains compare equal and then let
+ * `name-reused` assert that the two definitions agree about grain.
+ *
+ * `ordered` is false for a set -- the order of dimensions and of dependencies
+ * carries no meaning -- and true for `filters`, because this tool does not parse
+ * a filter expression and so cannot know whether their order matters. A filter
+ * reordering is therefore reported, and the message says it was a reordering.
  */
 const SEMANTIC_FIELDS = Object.freeze([
-  { key: 'name', rule: 'name-changed', comparedAsRendered: true, render: (metric) => metric.name },
-  { key: 'grain', rule: 'grain-changed', comparedAsRendered: false, render: (metric) => asSet(metric.grain) || 'none' },
-  { key: 'aggregation', rule: 'aggregation-changed', comparedAsRendered: false, render: (metric) => metric.aggregation },
-  { key: 'unit', rule: 'unit-changed', comparedAsRendered: true, render: (metric) => metric.unit },
-  { key: 'formula', rule: 'formula-changed', comparedAsRendered: true, render: (metric) => metric.formula },
-  { key: 'filters', rule: 'filters-changed', comparedAsRendered: false, render: (metric) => metric.filters.join(' AND ') || 'none' },
-  { key: 'dependencies', rule: 'dependencies-changed', comparedAsRendered: false, render: (metric) => asSet(metric.dependsOn) || 'none' },
+  { key: 'name', rule: 'name-changed', entries: null, value: (metric) => metric.name },
+  { key: 'grain', rule: 'grain-changed', entries: (metric) => metric.grain, ordered: false },
+  { key: 'aggregation', rule: 'aggregation-changed', entries: null, value: (metric) => metric.aggregation },
+  { key: 'unit', rule: 'unit-changed', entries: null, value: (metric) => metric.unit },
+  { key: 'formula', rule: 'formula-changed', entries: null, value: (metric) => metric.formula },
+  { key: 'filters', rule: 'filters-changed', entries: (metric) => metric.filters, ordered: true },
+  { key: 'dependencies', rule: 'dependencies-changed', entries: (metric) => metric.dependsOn, ordered: false },
 ])
 
-/** The exact value compared for a field. Filters keep their order; sets do not have one. */
-function comparableValue(metric, key, render) {
-  return key === 'filters' ? JSON.stringify(metric.filters) : render(metric)
+/** What a field looks like in the report. A list says how many entries it has. */
+function renderField(field, metric, limit) {
+  if (field.entries === null) return excerpt(field.value(metric), limit)
+  return renderEntries(field.entries(metric), limit, field.ordered)
+}
+
+/**
+ * How one field relates between two definitions: same, different, or different
+ * only in characters this report removes.
+ *
+ * Every field goes through one of the two rendered comparisons, so there is no
+ * field left comparing raw text against a rendered message. `aggregation` can
+ * never come back `stripped-only` -- its vocabulary is closed and every member
+ * of it is plain lowercase ASCII -- but it takes the same path as every other
+ * single value rather than a branch of its own.
+ */
+function compareField(field, was, now, limit) {
+  if (field.entries === null) return compareAsRendered(field.value(was), field.value(now), limit)
+  return compareEntriesAsRendered(field.entries(was), field.entries(now), limit, { ordered: field.ordered })
+}
+
+/** Where a `stripped-only` difference sits, named by entry and by code point. */
+function describeFieldDifference(field, was, now) {
+  if (field.entries === null) return describeCharacterDifference(field.value(was), field.value(now))
+  return describeEntryDifference(field.entries(was), field.entries(now), { ordered: field.ordered })
 }
 
 /**
@@ -757,6 +813,10 @@ function comparableValue(metric, key, render) {
  * list, because this tool does not parse a filter expression and so cannot know
  * whether their order matters -- so a reordering is reported, and the message
  * says it was a reordering rather than implying the expressions changed.
+ *
+ * Every comparison is made on the structure and on the rendered entries, never
+ * on a list flattened into one string: flattening made `["date, region"]` and
+ * `["date", "region"]` equal, which silenced a real grain change entirely.
  */
 function compareRegistries(previous, current, files, limits) {
   const findings = []
@@ -773,12 +833,12 @@ function compareRegistries(previous, current, files, limits) {
    * field and the first differing code point, and it is a warning, because
    * nothing a consumer of these numbers can see moved.
    */
-  const addInvisible = ({ id, pointer, what, before, after }) => findings.push(finding({
+  const addInvisible = ({ id, pointer, what, difference }) => findings.push(finding({
     ruleId: 'changed-invisibly',
     file: files.registry,
     pointer,
     message: `${JSON.stringify(excerpt(id, 60))} changed ${what} only in characters this report removes, so the two values render identically here; this is an editing difference in the document, not a change of ${what}`,
-    evidence: `${what}: ${describeCharacterDifference(before, after)}`,
+    evidence: `${what}: ${difference}`,
     suggestion: 'remove the stray character, or if the difference is deliberate make the two values read differently',
   }))
 
@@ -815,33 +875,43 @@ function compareRegistries(previous, current, files, limits) {
     const versionRelation = compareAsRendered(was.definitionVersion, now.definitionVersion, limits.maxFieldLength)
     const declared = versionRelation === 'different'
     if (versionRelation === 'stripped-only') {
-      addInvisible({ id, pointer, what: 'definitionVersion', before: was.definitionVersion, after: now.definitionVersion })
+      addInvisible({
+        id,
+        pointer,
+        what: 'definitionVersion',
+        difference: describeCharacterDifference(was.definitionVersion, now.definitionVersion),
+      })
     }
     let changed = false
 
     for (const field of SEMANTIC_FIELDS) {
-      if (comparableValue(was, field.key, field.render) === comparableValue(now, field.key, field.render)) continue
-      if (field.comparedAsRendered && compareAsRendered(field.render(was), field.render(now), limits.maxFieldLength) === 'stripped-only') {
-        addInvisible({ id, pointer, what: field.key, before: field.render(was), after: field.render(now) })
+      const relation = compareField(field, was, now, limits.maxFieldLength)
+      if (relation === 'same') continue
+      if (relation === 'stripped-only') {
+        addInvisible({ id, pointer, what: field.key, difference: describeFieldDifference(field, was, now) })
         continue
       }
       changed = true
-      const reordered = field.key === 'filters' && asSet(was.filters) === asSet(now.filters)
+      // A filter list whose entries are the same set in another order. The
+      // entries are compared without sorting, so this is the only way to tell a
+      // reordering from a rewrite.
+      const reordered = field.entries !== null && field.ordered
+        && compareEntriesAsRendered(field.entries(was), field.entries(now), limits.maxFieldLength, { ordered: false }) === 'same'
       findings.push(finding({
         ruleId: `${field.rule}-${declared ? 'declared' : 'undeclared'}`,
         file: files.registry,
         pointer,
         message: reordered
           ? `${JSON.stringify(excerpt(id, 60))} lists the same filters in a different order; this tool does not parse a filter expression, so it cannot tell you whether the order matters. definitionVersion ${declared ? 'moved with the change' : 'did not move, so the same version now names two different lists'}`
-          : `${JSON.stringify(excerpt(id, 60))} changed ${field.key} from ${excerpt(field.render(was), 60)} to ${excerpt(field.render(now), 60)}. definitionVersion ${declared ? `moved from ${excerpt(was.definitionVersion, 20)} to ${excerpt(now.definitionVersion, 20)}` : `stayed at ${excerpt(now.definitionVersion, 20)}, so the same version now means two different things`}`,
-        evidence: `${excerpt(field.render(was), 60)} | ${excerpt(field.render(now), 60)}`,
+          : `${JSON.stringify(excerpt(id, 60))} changed ${field.key} from ${renderField(field, was, 60)} to ${renderField(field, now, 60)}. definitionVersion ${declared ? `moved from ${excerpt(was.definitionVersion, 20)} to ${excerpt(now.definitionVersion, 20)}` : `stayed at ${excerpt(now.definitionVersion, 20)}, so the same version now means two different things`}`,
+        evidence: `${renderField(field, was, 60)} | ${renderField(field, now, 60)}`,
         suggestion: declared ? undefined : 'move definitionVersion when the definition moves, so a cached number can be matched to the definition that produced it',
       }))
     }
 
     const ownerRelation = compareAsRendered(was.owner, now.owner, limits.maxFieldLength)
     if (ownerRelation === 'stripped-only') {
-      addInvisible({ id, pointer, what: 'owner', before: was.owner, after: now.owner })
+      addInvisible({ id, pointer, what: 'owner', difference: describeCharacterDifference(was.owner, now.owner) })
     } else if (ownerRelation === 'different') {
       findings.push(finding({
         ruleId: 'owner-changed',

@@ -28,7 +28,9 @@ test('acceptance: two definitions sharing a name but different grain are flagged
   assert.equal(item.severity, 'error')
   assert.equal(item.location.pointer, '/metrics/1')
   assert.match(item.message, /one name cannot mean two grains/)
-  assert.equal(item.evidence, 'date | date, region')
+  // Each entry is quoted, so the evidence says how many dimensions there are.
+  // Joined bare, `["date, region"]` and `["date", "region"]` read the same.
+  assert.equal(item.evidence, '"date" | "date", "region"')
   assert.equal(report.summary.namesSharedBySeveralMetrics, 1)
   assert.equal(report.status, 'fail')
   assert.equal(exitCodeFor(report), 1)

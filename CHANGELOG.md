@@ -17,6 +17,9 @@ is recorded here.
   aggregation, and note a name that two definitions share while agreeing.
   Definitions are grouped by the name as the report renders it, so a trailing
   space does not split one shared name into two unrelated metrics.
+- Compare `grain`, `filters` and `dependsOn` entry by entry rather than as one
+  joined string, and quote each entry where the report prints it, so
+  `["date, region"]` and `["date", "region"]` are told apart in both directions.
 - Compare every single-value field as the report renders it. Two values that
   differ only in characters the report removes -- a trailing space, a NEL, a
   bidi mark -- give `changed-invisibly` or `name-differs-invisibly` at warning

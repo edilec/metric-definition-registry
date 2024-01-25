@@ -166,6 +166,45 @@ export function compareAsRendered(left, right, limit) {
   return excerpt(left, limit) === excerpt(right, limit) ? 'stripped-only' : 'different'
 }
 
+/**
+ * The same three answers for two LISTS of values, entry by entry.
+ *
+ * A list rendered into one string is not a list: `["date, region"]` and
+ * `["date", "region"]` both join to `date, region`, so a comparison made on the
+ * joined string calls two genuinely different grains equal -- and then asserts
+ * positively that the two definitions "agree about grain". Compare the
+ * structure: the entry count first, then each aligned entry.
+ *
+ * `ordered` decides whether position carries meaning. A grain and a dependency
+ * list are sets, so they are sorted into one canonical order first; a filter
+ * list keeps its order, because this tool does not parse a filter expression
+ * and so cannot know whether the order matters.
+ */
+export function compareEntriesAsRendered(left, right, limit, { ordered }) {
+  const before = ordered ? [...left] : [...left].sort(byCodeUnit)
+  const after = ordered ? [...right] : [...right].sort(byCodeUnit)
+  if (before.length !== after.length) return 'different'
+  if (before.every((entry, at) => entry === after[at])) return 'same'
+  if (before.every((entry, at) => excerpt(entry, limit) === excerpt(after[at], limit))) return 'stripped-only'
+  return 'different'
+}
+
+/**
+ * Where two lists first differ, named by entry and by code point.
+ *
+ * Only ever called for a `stripped-only` pair, which by construction has the
+ * same entry count and aligns entry for entry, so the first entry whose raw
+ * text differs is the one to describe.
+ */
+export function describeEntryDifference(left, right, { ordered }) {
+  const before = ordered ? [...left] : [...left].sort(byCodeUnit)
+  const after = ordered ? [...right] : [...right].sort(byCodeUnit)
+  let at = 0
+  while (at < before.length && before[at] === after[at]) at += 1
+  if (at === before.length) return 'the two lists are the same'
+  return `entry ${at + 1}, ${describeCharacterDifference(before[at], after[at])}`
+}
+
 /** A code point named as `U+XXXX`, which is safe to print for any character. */
 function nameCharacter(character) {
   if (character === undefined) return 'the end of the value'

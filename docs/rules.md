@@ -49,6 +49,15 @@ because this tool does not parse a filter expression and so cannot know whether
 their order matters — a reordering is reported, and the message says it was a
 reordering rather than implying the expressions changed.
 
+All three are compared **entry by entry**, never as one joined string, and each
+entry is quoted where the report prints it. `["date, region"]` is one dimension
+whose name contains a comma and `["date", "region"]` is two dimensions; joined
+with `, ` they are the same text. Comparing that text made the two equal, which
+had two consequences in opposite directions: two definitions at genuinely
+different grains were reported as agreeing about grain at exit 0, and a real
+grain change from `["date", "region"]` to `["date, region"]` with
+`definitionVersion` unmoved produced no finding at all.
+
 A `definitionVersion` that moves with nothing else changing is not reported.
 Re-versioning a definition ahead of a change is ordinary work, and nagging about
 it would be a finding on correct input.
@@ -130,7 +139,7 @@ render identically are identical.
 | `input-unreadable` | error | yes | A registry could not be opened. |
 | `metric-added` | info | no | A definition is new since the previous registry. |
 | `metric-id-duplicate` | error | yes | An id is declared twice, so an index by id is ambiguous. Nothing is analysed. |
-| `metric-invalid` | error | yes | A definition is not an object, or a field is missing, mistyped, over `--max-field-length`, or renders empty once control characters are removed. |
+| `metric-invalid` | error | yes | A definition is not an object, or a field is missing, mistyped, over `--max-field-length`, renders empty once control characters are removed, or declares two grain entries this report renders identically. |
 | `metric-removed` | error | no | A definition that existed is gone. Anything citing it has no definition to resolve. |
 | `metric-unknown-field` | error | yes | A definition declares a field this tool does not understand. |
 | `name-aggregation-conflict` | error | no | Two definitions share a name and aggregate differently. |
