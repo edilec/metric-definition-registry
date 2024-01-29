@@ -21,7 +21,7 @@
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, resolve, sep } from 'node:path'
 
-import { findCycles } from './graph.mjs'
+import { findCyclicGroups } from './graph.mjs'
 import {
   byCodeUnit, compareAsRendered, compareEntriesAsRendered, decodeUtf8,
   describeCharacterDifference, describeEntryDifference,
@@ -29,7 +29,7 @@ import {
 } from './text.mjs'
 
 export { byCodeUnit, excerpt, isUsableText, parseFailureDetail, renderable } from './text.mjs'
-export { findCycles } from './graph.mjs'
+export { findCyclicGroups } from './graph.mjs'
 
 /** Equal to the directory and package name. A test asserts that, in both directions. */
 export const TOOL_ID = 'metric-definition-registry'
@@ -732,26 +732,40 @@ function analyseRegistry(registry, file, limits) {
     }
   }
 
-  let cycles = null
+  // One finding per cyclic GROUP -- a set of metrics that all depend on each
+  // other, none of which can ever be computed. Not one per elementary cycle:
+  // that count is exponential in the number of metrics, and enumerating it took
+  // 3.2 GB and 504 seconds on a registry legal on every documented bound. Every
+  // group is found, each exactly once, in linear time, and every metric that
+  // takes part in any cycle is named in exactly one of them.
+  let groups = null
   if (graphComplete) {
     const edges = new Map(ids.map((id) => [id, registry.index.get(id).dependsOn]))
-    cycles = findCycles(edges)
-    for (const cycle of cycles) {
-      const member = registry.index.get(cycle[0])
-      const rendered = [...cycle, cycle[0]].map((id) => excerpt(id, 40)).join(' -> ')
+    groups = findCyclicGroups(edges)
+    for (const group of groups) {
+      const member = registry.index.get(group.members[0])
+      const rendered = [...group.cycle, group.cycle[0]].map((id) => excerpt(id, 40)).join(' -> ')
+      // The witness cycle can be shorter than the group: every member is
+      // unusable, but the shortest cycle through the first one need not pass
+      // through all of them. When it does not, the message says so and names
+      // the group, rather than letting the cycle read as the whole of it.
+      const whole = group.cycle.length === group.members.length
+      const members = excerpt(group.members.map((id) => excerpt(id, 40)).join(', '), 200)
       add({
         ruleId: 'dependency-cycle',
         pointer: `/metrics/${member.position}/dependsOn`,
-        message: cycle.length === 1
-          ? `${JSON.stringify(excerpt(cycle[0], 40))} depends on itself, so it can never be computed`
-          : `${cycle.length} metrics depend on each other in a cycle, so none of them can be computed: ${excerpt(rendered, 200)}`,
+        message: group.members.length === 1
+          ? `${JSON.stringify(excerpt(group.members[0], 40))} depends on itself, so it can never be computed`
+          : whole
+            ? `${group.members.length} metrics depend on each other, so none of them can be computed: ${excerpt(rendered, 200)}`
+            : `${group.members.length} metrics depend on each other, so none of them can be computed; one cycle among them is ${excerpt(rendered, 120)}, and the group is ${members}`,
         evidence: excerpt(rendered, EVIDENCE_LIMIT),
-        suggestion: 'break the cycle by making one of these metrics depend on a shared upstream definition instead',
+        suggestion: 'break the group by making one of these metrics depend on a shared upstream definition instead',
       })
     }
   }
 
-  return { findings, graphComplete, cycles, namesSharedBySeveralMetrics }
+  return { findings, graphComplete, groups, namesSharedBySeveralMetrics }
 }
 
 /**
@@ -1025,10 +1039,10 @@ export async function checkRegistry(options = {}) {
       // False means the registry was never validated as a whole, so an empty
       // findings list says nothing about it.
       registryRead: current !== undefined,
-      // False means an edge left the evidence. `cyclesFound` is then null: not
-      // zero, because zero is a claim and none was earned.
+      // False means an edge left the evidence. `cyclicGroupsFound` is then
+      // null: not zero, because zero is a claim and none was earned.
       dependencyGraphComplete: analysis === null ? false : analysis.graphComplete,
-      cyclesFound: analysis === null || analysis.cycles === null ? null : analysis.cycles.length,
+      cyclicGroupsFound: analysis === null || analysis.groups === null ? null : analysis.groups.length,
       namesSharedBySeveralMetrics: analysis === null ? 0 : analysis.namesSharedBySeveralMetrics,
       // False means no previous registry was read, so nothing here is a claim
       // about what changed. Absent history is unknown, not "nothing changed".
@@ -1070,7 +1084,7 @@ export function formatReport(report) {
   } else {
     lines.push(`  ${summary.metrics} metric definition(s), ${summary.namesSharedBySeveralMetrics} name(s) shared by several definitions`)
     lines.push(summary.dependencyGraphComplete
-      ? `  dependency graph: every edge resolves, ${summary.cyclesFound} cycle(s) found`
+      ? `  dependency graph: every edge resolves, ${summary.cyclicGroupsFound} group(s) of metrics that depend on each other`
       : '  dependency graph: at least one edge leaves this registry, so it is NOT known to be acyclic and no cycle search was run')
   }
   lines.push(summary.comparedWithPrevious

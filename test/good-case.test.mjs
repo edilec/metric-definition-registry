@@ -27,7 +27,7 @@ test('a well-formed registry with resolvable dependencies produces no findings a
   // Silence has to come from an analysis that happened.
   assert.equal(report.summary.registryRead, true)
   assert.equal(report.summary.dependencyGraphComplete, true)
-  assert.equal(report.summary.cyclesFound, 0)
+  assert.equal(report.summary.cyclicGroupsFound, 0)
   assert.equal(report.summary.metrics, 2)
 })
 
@@ -53,7 +53,7 @@ test('a diamond dependency is not a cycle', async () => {
   const report = await checkRegistry(documents)
 
   assert.deepEqual(report.findings, [])
-  assert.equal(report.summary.cyclesFound, 0)
+  assert.equal(report.summary.cyclicGroupsFound, 0)
   assert.equal(report.status, 'pass')
 })
 

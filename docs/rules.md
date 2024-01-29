@@ -124,7 +124,7 @@ render identically are identical.
 | `dependencies-changed-declared` | info | no | The dependency set changed and `definitionVersion` moved with it. |
 | `dependencies-changed-undeclared` | error | no | The dependency set changed and `definitionVersion` did not move. |
 | `dependencies-undeclared` | error | yes | A definition has no `dependsOn`. An absent list is not an empty list. |
-| `dependency-cycle` | error | no | Metrics depend on each other in a cycle, so none of them can be computed. |
+| `dependency-cycle` | error | no | A group of metrics depend on each other, so none of them can be computed. One finding per group, with one witness cycle. |
 | `dependency-duplicate` | warning | no | A `dependsOn` list names the same dependency twice. |
 | `dependency-unresolved` | error | yes | A dependency names a metric this registry does not define, so the graph has an edge leaving the evidence and no cycle search is run. |
 | `filters-changed-declared` | info | no | The filter list changed and `definitionVersion` moved with it. |
@@ -170,6 +170,7 @@ sort rather than placed within it: it is a statement about the list, not an entr
 in it. That means `Z.json` precedes `m.json` and `/metrics/10` precedes
 `/metrics/2`. Both are deliberate: collation depends on ICU data that differs
 between Node builds, and a report that two machines order differently is a
-report nobody can diff. Cycles are ordered by their first member, each cycle
-rotated to begin at the id that sorts first, so the same cycle always reads the
-same way whichever definition the walk reached first.
+report nobody can diff. Cyclic groups are ordered by their first member, and the
+witness cycle each one carries is the shortest cycle through that member over an
+adjacency sorted by code unit, so the same graph always reads the same way
+whichever definition the walk reached first.

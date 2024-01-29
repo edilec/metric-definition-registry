@@ -117,11 +117,27 @@ edges be reported as an acyclic graph. So an absent `dependsOn` is
 
 ## The dependency graph
 
-Cycles are found with an iterative depth-first search, so a chain deeper than
-the call stack is a report rather than a crash — a stack overflow would be an
-exit code outside this tool's contract. Each cycle is reported once, rotated to
-begin at the member that sorts first by code unit, so the same cycle always
-reads the same way.
+What is reported is a **cyclic group**: a set of metrics that all depend on each
+other, none of which can ever be computed. That is a strongly connected
+component of two or more metrics, or one metric that depends on itself. Every
+such group is found, each exactly once, ordered by the member that sorts first
+by code unit, and every metric that takes part in any cycle is named in exactly
+one of them. Each group carries one witness cycle — the shortest through its
+first member — so a reader has somewhere to start.
+
+The search is iterative, so a chain deeper than the call stack is a report
+rather than a crash; a stack overflow would be an exit code outside this tool's
+contract. It runs in time and memory linear in the size of the graph.
+
+**Why a group and not every cycle.** The number of elementary cycles in a graph
+is exponential in the number of metrics: a registry of 4880 definitions with
+fourteen dependencies each — 1,045,409 bytes, legal on every limit below — drove
+an earlier enumeration to 3.2 GB of resident memory and over eight minutes, and
+it still undercounted, because a cycle whose entry point the walk had already
+left was never seen. A group is the unit a reader has to act on anyway: every
+metric in it is unusable until the group is broken, and naming the group names
+all of them. Nothing is hidden by it — a registry with any cycle left in it is
+never reported as acyclic.
 
 **A graph with a dangling edge is not an acyclic graph.** When any `dependsOn`
 entry names a metric this registry does not define, the search is not run at
@@ -129,8 +145,8 @@ all:
 
 - `dependency-unresolved` is raised for each such edge,
 - `summary.dependencyGraphComplete` is `false`,
-- `summary.cyclesFound` is `null` — **not `0`**, because zero is a claim and
-  none was earned,
+- `summary.cyclicGroupsFound` is `null` — **not `0`**, because zero is a claim
+  and none was earned,
 - the human summary says the graph is *not known to be acyclic*,
 - the run is `incomplete` and exits 2.
 
@@ -168,7 +184,7 @@ code point instead of printing two values that look the same.
 | `dependencies-changed-declared` | info | no | The dependency set changed and `definitionVersion` moved with it. |
 | `dependencies-changed-undeclared` | error | no | The dependency set changed and `definitionVersion` did not move. |
 | `dependencies-undeclared` | error | yes | A definition has no `dependsOn`. An absent list is not an empty list. |
-| `dependency-cycle` | error | no | Metrics depend on each other in a cycle. |
+| `dependency-cycle` | error | no | A group of metrics depend on each other, so none of them can be computed. |
 | `dependency-duplicate` | warning | no | A `dependsOn` list names the same dependency twice. |
 | `dependency-unresolved` | error | yes | A dependency names a metric this registry does not define, so no cycle search is run. |
 | `filters-changed-declared` | info | no | The filter list changed and `definitionVersion` moved with it. |
@@ -247,7 +263,7 @@ extra fields:
 | `registryRead` | **False means the registry was never validated as a whole.** An empty `findings` list says nothing about it. |
 | `metrics` | How many definitions were indexed. |
 | `dependencyGraphComplete` | False means an edge leaves the evidence. |
-| `cyclesFound` | An integer, or `null` when no search was run. Never `0` in that case. |
+| `cyclicGroupsFound` | How many groups of mutually dependent metrics were found: an integer, or `null` when no search was run. Never `0` in that case. |
 | `namesSharedBySeveralMetrics` | How many names more than one definition answers to. |
 | `comparedWithPrevious` | **False means no previous registry was read**, so nothing in the report is a claim about what changed. |
 | `metricsAdded` / `metricsRemoved` / `metricsChanged` | Counts from the comparison; all zero when there was none. |
@@ -269,6 +285,10 @@ This tool does not, and will not without a deliberate decision:
 - **Rank or merge conflicting definitions.** Two definitions sharing a name are
   reported; which one is right is not a question the documents answer.
 - **Search a graph it could not resolve.** See *The dependency graph*.
+- **Enumerate every elementary cycle.** That count is exponential in the number
+  of metrics and cannot be produced inside a memory bound derived from the input
+  size. Every cyclic *group* is reported instead, which names every metric that
+  takes part in any cycle.
 - **Write anything.** No `--out`, no directory creation, no auto-fix.
 
 ## Verification

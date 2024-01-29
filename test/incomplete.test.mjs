@@ -37,7 +37,7 @@ test('an unresolved dependency leaves the graph unknown, and no cycle search is 
   assert.match(report.findings[0].message, /not known to be acyclic/)
   assert.equal(report.summary.dependencyGraphComplete, false)
   // Not zero. Zero is a claim, and none was earned.
-  assert.equal(report.summary.cyclesFound, null)
+  assert.equal(report.summary.cyclicGroupsFound, null)
   assert.equal(report.findings.filter((item) => item.ruleId === 'dependency-cycle').length, 0)
 })
 
@@ -55,7 +55,7 @@ test('an unresolved dependency does not suppress the cycle that is visible besid
 
   assertIncomplete(report, 'dependency-unresolved')
   assert.equal(report.summary.dependencyGraphComplete, false)
-  assert.equal(report.summary.cyclesFound, null)
+  assert.equal(report.summary.cyclicGroupsFound, null)
   assert.equal(exitCodeFor(report), 2, 'an incomplete graph is not downgraded to a plain failure')
 })
 
@@ -77,7 +77,7 @@ test('an absent dependsOn is unknown, not an empty list', async () => {
   assertIncomplete(report, 'dependencies-undeclared')
   assert.match(report.findings[0].message, /must be declared, as \[\] when the metric depends on no other metric/)
   assert.equal(report.summary.registryRead, false)
-  assert.equal(report.summary.cyclesFound, null)
+  assert.equal(report.summary.cyclicGroupsFound, null)
 })
 
 test('a duplicate metric id makes the index ambiguous, and nothing is analysed', async () => {
@@ -89,7 +89,7 @@ test('a duplicate metric id makes the index ambiguous, and nothing is analysed',
 
   assertIncomplete(report, 'metric-id-duplicate')
   assert.equal(report.summary.registryRead, false)
-  assert.equal(report.summary.cyclesFound, null)
+  assert.equal(report.summary.cyclicGroupsFound, null)
   assert.equal(report.findings.filter((item) => item.ruleId.startsWith('name-')).length, 0)
 })
 

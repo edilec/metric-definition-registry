@@ -67,7 +67,7 @@ test('acceptance: a dependency cycle fails', async () => {
   assert.equal(item.severity, 'error')
   assert.equal(item.evidence, 'margin -> revenue -> margin')
   assert.match(item.message, /so none of them can be computed/)
-  assert.equal(report.summary.cyclesFound, 1)
+  assert.equal(report.summary.cyclicGroupsFound, 1)
   assert.equal(report.status, 'fail')
   assert.equal(exitCodeFor(report), 1)
 })
@@ -90,7 +90,7 @@ test('acceptance: two separate cycles are both reported, each once', async () =>
   ]))
   const report = await checkRegistry(documents)
 
-  assert.equal(report.summary.cyclesFound, 2)
+  assert.equal(report.summary.cyclicGroupsFound, 2)
   assert.deepEqual(report.findings.map((item) => item.evidence), ['a -> b -> a', 'y -> z -> y'])
 })
 

@@ -25,11 +25,16 @@ is recorded here.
   bidi mark -- give `changed-invisibly` or `name-differs-invisibly` at warning
   severity, naming the field and the first differing code point, instead of a
   value change whose own evidence shows the two values alike.
-- Find dependency cycles with an iterative search, so a chain deeper than the
-  call stack is a report rather than a crash. Each cycle is reported once,
-  rotated to a canonical first member.
+- Find every cyclic group -- a set of metrics that all depend on each other --
+  with an iterative search, so a chain deeper than the call stack is a report
+  rather than a crash. Each group is reported once, ordered by its first member,
+  with one witness cycle. `summary.cyclicGroupsFound` counts groups; enumerating
+  every elementary cycle is a non-goal, because that count is exponential in the
+  number of metrics and cannot be produced inside a memory bound derived from
+  the input size.
 - Refuse to search a dependency graph with an unresolved edge:
-  `summary.cyclesFound` is `null` rather than `0`, and the run is `incomplete`.
+  `summary.cyclicGroupsFound` is `null` rather than `0`, and the run is
+  `incomplete`.
 - Require units, aggregations and dependency lists to be declared. None of the
   three is inferred, and an absent `dependsOn` is not read as an empty one.
 - Compare with a previous registry, recording for each changed field whether

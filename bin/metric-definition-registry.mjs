@@ -36,6 +36,13 @@ Two things this tool will not do, because both would be inventions:
   Instead the search is refused and the report says the graph is not known to
   be acyclic.
 
+What a cycle finding names is a GROUP of metrics that all depend on each other,
+with one witness cycle through it. Every group is reported, each once, and every
+metric that takes part in any cycle is named in exactly one of them. Enumerating
+every elementary cycle is not offered: that count is exponential in the number
+of metrics, so it cannot be produced inside a memory bound derived from the
+input size.
+
 Usage:
   metric-definition-registry --root DIR --registry FILE [--previous FILE]
                              [--json] [limits]
