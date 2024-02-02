@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { checkRegistry, exitCodeFor } from '../src/index.mjs'
-import { metric, oneRegistry, registryDoc, runCli, twoRegistries } from './support.mjs'
+import { makeRoot, metric, oneRegistry, registryDoc, runCli, twoRegistries, writeDocument } from './support.mjs'
 
 async function compare(before, after) {
   const documents = await twoRegistries(registryDoc(before), registryDoc(after))
@@ -30,8 +30,44 @@ test('without a previous registry, nothing is claimed about what changed', async
   assert.deepEqual(report.findings, [])
 
   const run = await runCli(['--root', documents.root, '--registry', documents.registry])
+  assert.equal(report.summary.previousRegistryNamed, false)
   assert.match(run.stderr, /no previous registry was given, so nothing here is a statement about what changed/)
   assert.ok(!/removed/.test(run.stderr))
+})
+
+test('a previous registry that was named and could not be read is not "not given"', async () => {
+  // The sentence "no previous registry was given" was printed two lines above
+  // "ERROR input-unreadable gone.json": a false statement about the invocation,
+  // made beside the finding that contradicts it. The JSON report was right
+  // throughout; only the human summary lied.
+  const documents = await oneRegistry(registryDoc([metric()]))
+  const report = await checkRegistry({ ...documents, previous: 'gone.json' })
+
+  assert.equal(report.summary.comparedWithPrevious, false)
+  assert.equal(report.summary.previousRegistryNamed, true)
+  assert.deepEqual(report.findings.map((item) => item.ruleId), ['input-unreadable'])
+  assert.equal(exitCodeFor(report), 2)
+
+  const run = await runCli(['--root', documents.root, '--registry', documents.registry, '--previous', 'gone.json'])
+  assert.equal(run.code, 2)
+  assert.match(run.stderr, /a previous registry was named and was not read/)
+  assert.ok(!/no previous registry was given/.test(run.stderr))
+})
+
+test('a previous registry that exists but does not validate is also not "not given"', async () => {
+  const root = await makeRoot()
+  await writeDocument(root, 'metrics.json', registryDoc([metric()]))
+  await writeDocument(root, 'previous.json', { registryVersion: '1', metrics: [metric()], extra: 1 })
+  const report = await checkRegistry({ root, registry: 'metrics.json', previous: 'previous.json' })
+
+  assert.equal(report.summary.comparedWithPrevious, false)
+  assert.equal(report.summary.previousRegistryNamed, true)
+  assert.deepEqual(report.findings.map((item) => item.ruleId), ['registry-unknown-field'])
+
+  const run = await runCli(['--root', root, '--registry', 'metrics.json', '--previous', 'previous.json'])
+  assert.equal(run.code, 2)
+  assert.match(run.stderr, /a previous registry was named and was not read/)
+  assert.ok(!/no previous registry was given/.test(run.stderr))
 })
 
 test('a semantic change without a version bump fails', async () => {

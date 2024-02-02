@@ -39,7 +39,9 @@ is recorded here.
   three is inferred, and an absent `dependsOn` is not read as an empty one.
 - Compare with a previous registry, recording for each changed field whether
   `definitionVersion` moved with it. Without `--previous`, the report states
-  that no comparison was made rather than reporting that nothing changed.
+  that no comparison was made rather than reporting that nothing changed, and
+  `summary.previousRegistryNamed` separates a previous registry nobody asked
+  for from one that was named and could not be read.
 - Bounds on document bytes, definitions, list entries, field length and
   findings, each enforced before the work it bounds.
 - Input paths confined to `--root`, by lexical check and by resolved real path,

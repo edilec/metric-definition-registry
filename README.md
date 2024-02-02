@@ -266,6 +266,7 @@ extra fields:
 | `cyclicGroupsFound` | How many groups of mutually dependent metrics were found: an integer, or `null` when no search was run. Never `0` in that case. |
 | `namesSharedBySeveralMetrics` | How many names more than one definition answers to. |
 | `comparedWithPrevious` | **False means no previous registry was read**, so nothing in the report is a claim about what changed. |
+| `previousRegistryNamed` | Whether `--previous` was given at all. With the field above it separates "no history was asked for" from "history was asked for and could not be read"; the human summary says which. |
 | `metricsAdded` / `metricsRemoved` / `metricsChanged` | Counts from the comparison; all zero when there was none. |
 
 `checked` is the number of definitions indexed plus, when a previous registry

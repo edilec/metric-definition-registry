@@ -1047,6 +1047,11 @@ export async function checkRegistry(options = {}) {
       // False means no previous registry was read, so nothing here is a claim
       // about what changed. Absent history is unknown, not "nothing changed".
       comparedWithPrevious: comparison !== null,
+      // Whether one was NAMED, which is a different fact. Without it the human
+      // summary could only say "no previous registry was given", and said it
+      // two lines above "input-unreadable gone.json" -- a false statement about
+      // the invocation, printed beside the evidence that it was false.
+      previousRegistryNamed: previous !== null,
       metricsAdded: comparison === null ? 0 : comparison.counts.metricsAdded,
       metricsRemoved: comparison === null ? 0 : comparison.counts.metricsRemoved,
       metricsChanged: comparison === null ? 0 : comparison.counts.metricsChanged,
@@ -1073,7 +1078,10 @@ const SEVERITY_MARK = Object.freeze({ error: 'ERROR  ', warning: 'WARN   ', info
  *
  * Note what this never says: it calls the graph acyclic only when every edge
  * resolved, and it says nothing at all about what changed unless a previous
- * registry was actually read.
+ * registry was actually read. It also never says a previous registry was not
+ * given when one was given and could not be read -- those are two different
+ * sentences, and printing the first for the second is a false statement about
+ * the invocation, made beside the finding that contradicts it.
  */
 export function formatReport(report) {
   const summary = report.summary
@@ -1087,9 +1095,15 @@ export function formatReport(report) {
       ? `  dependency graph: every edge resolves, ${summary.cyclicGroupsFound} group(s) of metrics that depend on each other`
       : '  dependency graph: at least one edge leaves this registry, so it is NOT known to be acyclic and no cycle search was run')
   }
-  lines.push(summary.comparedWithPrevious
-    ? `  compared with the previous registry: ${summary.metricsAdded} added, ${summary.metricsRemoved} removed, ${summary.metricsChanged} changed`
-    : '  no previous registry was given, so nothing here is a statement about what changed')
+  if (summary.comparedWithPrevious) {
+    lines.push(`  compared with the previous registry: ${summary.metricsAdded} added, ${summary.metricsRemoved} removed, ${summary.metricsChanged} changed`)
+  } else if (summary.previousRegistryNamed) {
+    // Not the same sentence as the one below. A previous registry that was
+    // named and could not be read is a failed comparison, not an absent one.
+    lines.push('  a previous registry was named and was not read, so nothing here is a statement about what changed')
+  } else {
+    lines.push('  no previous registry was given, so nothing here is a statement about what changed')
+  }
   for (const item of report.findings) {
     const where = item.location.pointer === '' ? item.location.file : `${item.location.file}${item.location.pointer}`
     lines.push(`  ${SEVERITY_MARK[item.severity]}${item.ruleId}  ${where}`)
