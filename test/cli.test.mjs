@@ -18,7 +18,7 @@ test('--help explains the tool and exits 0', async () => {
   assert.match(run.stdout, /Exit codes:/)
   assert.match(run.stdout, /This tool writes nothing/)
   assert.match(run.stdout, /reads no clock/)
-  assert.match(run.stdout, /does not search for cycles in a graph with an edge it could not resolve/)
+  assert.match(run.stdout, /does not report how many cyclic groups a graph has when an edge leaves/)
 })
 
 test('--version prints a version and exits 0', async () => {

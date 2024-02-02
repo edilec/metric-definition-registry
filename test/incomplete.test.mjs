@@ -46,6 +46,10 @@ test('an unresolved dependency does not suppress the cycle that is visible besid
   // the statement that the graph as a whole is not known to be acyclic. What
   // must never happen is the search running over a pruned graph and the report
   // reading as though it were complete.
+  //
+  // This test used to assert only the second half, so it pinned the suppression
+  // its own name promised would not happen: the implementation emitted
+  // dependency-unresolved alone, and nothing here noticed.
   const documents = await oneRegistry(registryDoc([
     metric({ id: 'a', name: 'a', dependsOn: ['b'] }),
     metric({ id: 'b', name: 'b', dependsOn: ['a'] }),
@@ -54,9 +58,37 @@ test('an unresolved dependency does not suppress the cycle that is visible besid
   const report = await checkRegistry(documents)
 
   assertIncomplete(report, 'dependency-unresolved')
+
+  // The half the name promises. a and b depend on each other through edges this
+  // registry declares, and no edge anyone adds can undo that.
+  const cycle = report.findings.find((item) => item.ruleId === 'dependency-cycle')
+  assert.ok(cycle !== undefined, `expected a dependency-cycle finding, got ${report.findings.map((item) => item.ruleId).join(', ')}`)
+  assert.equal(cycle.evidence, 'a -> b -> a')
+  assert.match(cycle.message, /^at least 2 metrics depend on each other/)
+  assert.match(cycle.message, /this group may have more members than are visible here/)
+
+  // And the half that was already here. The COUNT is not known: `elsewhere`
+  // could come back into this registry and merge two groups into one.
   assert.equal(report.summary.dependencyGraphComplete, false)
   assert.equal(report.summary.cyclicGroupsFound, null)
   assert.equal(exitCodeFor(report), 2, 'an incomplete graph is not downgraded to a plain failure')
+})
+
+test('a complete graph says how many groups it has, without the caveat', async () => {
+  // The companion: the caveat above must not become the sentence every cycle
+  // finding carries, or it stops meaning anything.
+  const documents = await oneRegistry(registryDoc([
+    metric({ id: 'a', name: 'a', dependsOn: ['b'] }),
+    metric({ id: 'b', name: 'b', dependsOn: ['a'] }),
+  ]))
+  const report = await checkRegistry(documents)
+
+  assert.deepEqual(report.findings.map((item) => item.ruleId), ['dependency-cycle'])
+  assert.match(report.findings[0].message, /^2 metrics depend on each other/)
+  assert.ok(!/at least/.test(report.findings[0].message))
+  assert.ok(!/may have more members/.test(report.findings[0].message))
+  assert.equal(report.summary.cyclicGroupsFound, 1)
+  assert.equal(exitCodeFor(report), 1)
 })
 
 test('the human summary refuses to call an incomplete graph acyclic', async () => {
@@ -64,8 +96,8 @@ test('the human summary refuses to call an incomplete graph acyclic', async () =
   const run = await runCli(['--root', documents.root, '--registry', documents.registry])
 
   assert.equal(run.code, 2)
-  assert.match(run.stderr, /NOT known to be acyclic and no cycle search was run/)
-  assert.ok(!/cycle\(s\) found/.test(run.stderr))
+  assert.match(run.stderr, /NOT known to be acyclic and how many groups it holds is not known/)
+  assert.ok(!/every edge resolves/.test(run.stderr))
 })
 
 test('an absent dependsOn is unknown, not an empty list', async () => {

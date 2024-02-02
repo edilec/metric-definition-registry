@@ -140,19 +140,33 @@ all of them. Nothing is hidden by it — a registry with any cycle left in it is
 never reported as acyclic.
 
 **A graph with a dangling edge is not an acyclic graph.** When any `dependsOn`
-entry names a metric this registry does not define, the search is not run at
-all:
+entry names a metric this registry does not define, two different questions get
+two different answers.
+
+*How many groups are there* is **unknown**. An edge that leaves this registry
+could come back into it, so resolving it could merge two groups or create one:
 
 - `dependency-unresolved` is raised for each such edge,
 - `summary.dependencyGraphComplete` is `false`,
-- `summary.cyclicGroupsFound` is `null` — **not `0`**, because zero is a claim
-  and none was earned,
+- `summary.cyclicGroupsFound` is `null` — **not `0`**, and not the number of
+  groups visible either, because that number is a lower bound and a field called
+  `cyclicGroupsFound` is read as a count,
 - the human summary says the graph is *not known to be acyclic*,
 - the run is `incomplete` and exits 2.
 
-Dropping the edge so the search could finish would let the tool report "no
-cycles" over a graph that is not the one in the document. That is the single
-thing this tool exists not to do.
+*Whether these particular metrics depend on each other* is **known**, for any
+group built only from edges this registry declares. Adding edges to a graph can
+never destroy a cycle, so such a group is a real one whatever the missing edges
+turn out to be. Those groups are reported, at error severity, with the message
+saying `at least N metrics` and that the group may have more members than are
+visible. Withholding them would make the report say less than the evidence
+supports and leave a reader to find the cycle on the next run, after fixing the
+dangling edge.
+
+What never happens is the thing this tool exists not to do: a pruned graph
+searched to exhaustion and its *count* reported as though the pruning had not
+happened. Reporting "no cycles" over a graph that is not the one in the document
+is a claim; reporting a cycle that the document proves is not.
 
 ## Comparing with the previous registry
 
@@ -186,7 +200,7 @@ code point instead of printing two values that look the same.
 | `dependencies-undeclared` | error | yes | A definition has no `dependsOn`. An absent list is not an empty list. |
 | `dependency-cycle` | error | no | A group of metrics depend on each other, so none of them can be computed. |
 | `dependency-duplicate` | warning | no | A `dependsOn` list names the same dependency twice. |
-| `dependency-unresolved` | error | yes | A dependency names a metric this registry does not define, so no cycle search is run. |
+| `dependency-unresolved` | error | yes | A dependency names a metric this registry does not define, so the number of cyclic groups is not known. |
 | `filters-changed-declared` | info | no | The filter list changed and `definitionVersion` moved with it. |
 | `filters-changed-undeclared` | error | no | The filter list changed and `definitionVersion` did not move. |
 | `formula-changed-declared` | info | no | The formula changed and `definitionVersion` moved with it. |
@@ -285,7 +299,9 @@ This tool does not, and will not without a deliberate decision:
   not a declared aggregation, and a currency column is not a declared unit.
 - **Rank or merge conflicting definitions.** Two definitions sharing a name are
   reported; which one is right is not a question the documents answer.
-- **Search a graph it could not resolve.** See *The dependency graph*.
+- **Report a number of cyclic groups for a graph it could not resolve.** See
+  *The dependency graph*. The groups the resolved edges prove are still
+  reported; the count is not.
 - **Enumerate every elementary cycle.** That count is exponential in the number
   of metrics and cannot be produced inside a memory bound derived from the input
   size. Every cyclic *group* is reported instead, which names every metric that

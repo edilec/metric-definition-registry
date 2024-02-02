@@ -30,11 +30,12 @@ Two things this tool will not do, because both would be inventions:
   that does not declare one is reported and the run is incomplete. In
   particular, an absent "dependsOn" is NOT read as "depends on nothing".
 
-  It does not search for cycles in a graph with an edge it could not resolve.
-  Dropping the dangling edge would let the search finish and report "no
-  cycles", which would be a conclusion drawn from evidence that was discarded.
-  Instead the search is refused and the report says the graph is not known to
-  be acyclic.
+  It does not report how many cyclic groups a graph has when an edge leaves
+  the registry. That count over a pruned graph would be a conclusion drawn
+  from evidence that was discarded, so it is withheld and the report says the
+  graph is not known to be acyclic. The groups the resolved edges PROVE are
+  still reported -- adding edges can never destroy a cycle -- and each says
+  "at least N metrics" and that the group may be larger.
 
 What a cycle finding names is a GROUP of metrics that all depend on each other,
 with one witness cycle through it. Every group is reported, each once, and every

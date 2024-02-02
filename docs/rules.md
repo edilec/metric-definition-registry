@@ -22,9 +22,16 @@ pointing at something this registry does not define.
 
 The second list is where the design differs from a validator that tries to be
 helpful. An absent `dependsOn` is not read as "depends on nothing", and an
-unresolved dependency does not get dropped so that the cycle search can finish.
-A search over a pruned graph can only ever report "no cycles", and that sentence
-would be a conclusion drawn from evidence that was discarded.
+unresolved dependency never lets the tool report a *number* of cyclic groups: a
+count over a pruned graph would be a conclusion drawn from evidence that was
+discarded, so `summary.cyclicGroupsFound` is `null`.
+
+The groups the resolved edges *prove* are still reported, because adding edges
+to a graph can never destroy a cycle — a cycle among edges this registry
+declares is a cycle whatever the missing edges turn out to be. Those findings
+say `at least N metrics` and that the group may be larger. The distinction is
+the whole point: a count is a claim about the graph, and a named group is a
+claim about the edges in front of you.
 
 ## Declared and undeclared changes
 
@@ -126,7 +133,7 @@ render identically are identical.
 | `dependencies-undeclared` | error | yes | A definition has no `dependsOn`. An absent list is not an empty list. |
 | `dependency-cycle` | error | no | A group of metrics depend on each other, so none of them can be computed. One finding per group, with one witness cycle. |
 | `dependency-duplicate` | warning | no | A `dependsOn` list names the same dependency twice. |
-| `dependency-unresolved` | error | yes | A dependency names a metric this registry does not define, so the graph has an edge leaving the evidence and no cycle search is run. |
+| `dependency-unresolved` | error | yes | A dependency names a metric this registry does not define, so the graph has an edge leaving the evidence and the number of cyclic groups is not known. |
 | `filters-changed-declared` | info | no | The filter list changed and `definitionVersion` moved with it. |
 | `filters-changed-undeclared` | error | no | The filter list changed and `definitionVersion` did not move. |
 | `formula-changed-declared` | info | no | The formula changed and `definitionVersion` moved with it. |

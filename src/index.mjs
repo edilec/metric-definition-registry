@@ -714,8 +714,8 @@ function analyseRegistry(registry, file, limits) {
     }
   }
 
-  // Unresolved edges. This is the point where the honesty rule bites: the
-  // dangling edge is NOT removed so the search can run. The search is refused.
+  // Unresolved edges. This is the point where the honesty rule bites -- see the
+  // block below for what is and is not reported once one has been found.
   let graphComplete = true
   for (const id of ids) {
     const metric = registry.index.get(id)
@@ -732,37 +732,60 @@ function analyseRegistry(registry, file, limits) {
     }
   }
 
-  // One finding per cyclic GROUP -- a set of metrics that all depend on each
-  // other, none of which can ever be computed. Not one per elementary cycle:
-  // that count is exponential in the number of metrics, and enumerating it took
-  // 3.2 GB and 504 seconds on a registry legal on every documented bound. Every
-  // group is found, each exactly once, in linear time, and every metric that
-  // takes part in any cycle is named in exactly one of them.
-  let groups = null
-  if (graphComplete) {
-    const edges = new Map(ids.map((id) => [id, registry.index.get(id).dependsOn]))
-    groups = findCyclicGroups(edges)
-    for (const group of groups) {
-      const member = registry.index.get(group.members[0])
-      const rendered = [...group.cycle, group.cycle[0]].map((id) => excerpt(id, 40)).join(' -> ')
-      // The witness cycle can be shorter than the group: every member is
-      // unusable, but the shortest cycle through the first one need not pass
-      // through all of them. When it does not, the message says so and names
-      // the group, rather than letting the cycle read as the whole of it.
-      const whole = group.cycle.length === group.members.length
-      const members = excerpt(group.members.map((id) => excerpt(id, 40)).join(', '), 200)
-      add({
-        ruleId: 'dependency-cycle',
-        pointer: `/metrics/${member.position}/dependsOn`,
-        message: group.members.length === 1
-          ? `${JSON.stringify(excerpt(group.members[0], 40))} depends on itself, so it can never be computed`
-          : whole
-            ? `${group.members.length} metrics depend on each other, so none of them can be computed: ${excerpt(rendered, 200)}`
-            : `${group.members.length} metrics depend on each other, so none of them can be computed; one cycle among them is ${excerpt(rendered, 120)}, and the group is ${members}`,
-        evidence: excerpt(rendered, EVIDENCE_LIMIT),
-        suggestion: 'break the group by making one of these metrics depend on a shared upstream definition instead',
-      })
-    }
+  /*
+   * One finding per cyclic GROUP -- a set of metrics that all depend on each
+   * other, none of which can ever be computed. Not one per elementary cycle:
+   * that count is exponential in the number of metrics, and enumerating it took
+   * 3.2 GB and 504 seconds on a registry legal on every documented bound. Every
+   * group is found, each exactly once, in linear time.
+   *
+   * WHEN AN EDGE LEAVES THE REGISTRY, two different questions get two different
+   * answers, and running them together is what produced the failure this tool
+   * exists to avoid.
+   *
+   * "How many groups are there" is UNKNOWN. An edge that leaves this registry
+   * could come back into it, so resolving it could merge two groups or create
+   * one. `cyclicGroupsFound` is therefore null -- not zero, and not the number
+   * found here, because that number is a lower bound and a summary field is
+   * read as a count.
+   *
+   * "Do these particular metrics depend on each other" is KNOWN, for every
+   * group built only from edges this registry declares. Adding edges to a graph
+   * can never destroy a cycle, so a cycle among resolved edges is a cycle
+   * whatever the missing edges turn out to be. Withholding it would make the
+   * report say less than the evidence supports, and would leave a reader who
+   * fixes the dangling edge to discover the cycle on the next run.
+   *
+   * So the groups that are PROVEN are reported, their number is not, the
+   * message says a group may be larger than it looks, and the run stays
+   * `incomplete` at exit 2 because `dependency-unresolved` is in that set. What
+   * never happens is the one the README warns about: a pruned graph searched to
+   * exhaustion and reported as though the count meant something.
+   */
+  const resolved = new Map(ids.map((id) => [id, registry.index.get(id).dependsOn.filter((target) => registry.index.has(target))]))
+  const groups = findCyclicGroups(resolved)
+  for (const group of groups) {
+    const member = registry.index.get(group.members[0])
+    const rendered = [...group.cycle, group.cycle[0]].map((id) => excerpt(id, 40)).join(' -> ')
+    // The witness cycle can be shorter than the group: every member is
+    // unusable, but the shortest cycle through the first one need not pass
+    // through all of them. When it does not, the message says so and names the
+    // group, rather than letting the cycle read as the whole of it.
+    const whole = group.cycle.length === group.members.length
+    const members = excerpt(group.members.map((id) => excerpt(id, 40)).join(', '), 200)
+    const counted = graphComplete ? `${group.members.length} metrics` : `at least ${group.members.length} metrics`
+    const caveat = graphComplete ? '' : '. An edge leaves this registry, so this group may have more members than are visible here'
+    add({
+      ruleId: 'dependency-cycle',
+      pointer: `/metrics/${member.position}/dependsOn`,
+      message: group.members.length === 1
+        ? `${JSON.stringify(excerpt(group.members[0], 40))} depends on itself, so it can never be computed`
+        : whole
+          ? `${counted} depend on each other, so none of them can be computed: ${excerpt(rendered, 200)}${caveat}`
+          : `${counted} depend on each other, so none of them can be computed; one cycle among them is ${excerpt(rendered, 120)}, and the group is ${members}${caveat}`,
+      evidence: excerpt(rendered, EVIDENCE_LIMIT),
+      suggestion: 'break the group by making one of these metrics depend on a shared upstream definition instead',
+    })
   }
 
   return { findings, graphComplete, groups, namesSharedBySeveralMetrics }
@@ -1042,7 +1065,11 @@ export async function checkRegistry(options = {}) {
       // False means an edge left the evidence. `cyclicGroupsFound` is then
       // null: not zero, because zero is a claim and none was earned.
       dependencyGraphComplete: analysis === null ? false : analysis.graphComplete,
-      cyclicGroupsFound: analysis === null || analysis.groups === null ? null : analysis.groups.length,
+      // An integer only when every edge resolved. When one did not, the number
+      // of groups found is a LOWER BOUND, and a summary field called
+      // `cyclicGroupsFound` is read as a count -- so it stays null and the
+      // groups that were proven are in the findings instead.
+      cyclicGroupsFound: analysis === null || !analysis.graphComplete ? null : analysis.groups.length,
       namesSharedBySeveralMetrics: analysis === null ? 0 : analysis.namesSharedBySeveralMetrics,
       // False means no previous registry was read, so nothing here is a claim
       // about what changed. Absent history is unknown, not "nothing changed".
@@ -1093,7 +1120,7 @@ export function formatReport(report) {
     lines.push(`  ${summary.metrics} metric definition(s), ${summary.namesSharedBySeveralMetrics} name(s) shared by several definitions`)
     lines.push(summary.dependencyGraphComplete
       ? `  dependency graph: every edge resolves, ${summary.cyclicGroupsFound} group(s) of metrics that depend on each other`
-      : '  dependency graph: at least one edge leaves this registry, so it is NOT known to be acyclic and no cycle search was run')
+      : '  dependency graph: at least one edge leaves this registry, so it is NOT known to be acyclic and how many groups it holds is not known; any group listed below was proven from the edges that do resolve')
   }
   if (summary.comparedWithPrevious) {
     lines.push(`  compared with the previous registry: ${summary.metricsAdded} added, ${summary.metricsRemoved} removed, ${summary.metricsChanged} changed`)

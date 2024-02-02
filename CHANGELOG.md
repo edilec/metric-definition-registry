@@ -32,9 +32,11 @@ is recorded here.
   every elementary cycle is a non-goal, because that count is exponential in the
   number of metrics and cannot be produced inside a memory bound derived from
   the input size.
-- Refuse to search a dependency graph with an unresolved edge:
-  `summary.cyclicGroupsFound` is `null` rather than `0`, and the run is
-  `incomplete`.
+- Withhold the *number* of cyclic groups when a dependency graph has an
+  unresolved edge: `summary.cyclicGroupsFound` is `null` rather than `0` or a
+  lower bound, and the run is `incomplete`. The groups the resolved edges prove
+  are still reported, each saying "at least N metrics" and that it may be
+  larger, because adding edges to a graph can never destroy a cycle.
 - Require units, aggregations and dependency lists to be declared. None of the
   three is inferred, and an absent `dependsOn` is not read as an empty one.
 - Compare with a previous registry, recording for each changed field whether
