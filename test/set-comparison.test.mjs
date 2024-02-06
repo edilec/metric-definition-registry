@@ -18,7 +18,7 @@ import test from 'node:test'
 
 import { checkRegistry, exitCodeFor } from '../src/index.mjs'
 import { compareEntriesAsRendered } from '../src/text.mjs'
-import { metric, oneRegistry, registryDoc, twoRegistries } from './support.mjs'
+import { metric, oneRegistry, registryDoc, runCli, twoRegistries } from './support.mjs'
 
 const ruleIds = (report) => report.findings.map((item) => item.ruleId)
 
@@ -93,6 +93,51 @@ test('reordering a grain or a dependency list is not a change', async () => {
   assert.deepEqual(report.findings, [])
   assert.equal(report.summary.metricsChanged, 0)
   assert.equal(exitCodeFor(report), 0)
+})
+
+test('a grain set reordered across an invisible spelling difference is not a changed grain', async () => {
+  const before = [' x', 'a']
+  const after = ['a', 'x']
+  assert.equal(compareEntriesAsRendered(before, after, 400, { ordered: false }), 'stripped-only')
+
+  const documents = await twoRegistries(
+    registryDoc([metric({ id: 'rev', name: 'revenue', grain: before })]),
+    registryDoc([metric({ id: 'rev', name: 'revenue', grain: after })]),
+  )
+  const report = await checkRegistry(documents)
+  assert.deepEqual(ruleIds(report), ['changed-invisibly'])
+  assert.equal(report.findings[0].severity, 'warning')
+  assert.equal(report.findings[0].evidence, 'grain: entry 2, at character 1: before U+0020, after U+0078')
+  assert.equal(report.summary.metricsChanged, 0)
+  assert.equal(exitCodeFor(report), 0)
+
+  const cli = await runCli(['--root', documents.root, '--registry', documents.registry, '--previous', documents.previous, '--json'])
+  assert.equal(cli.code, 0)
+  assert.deepEqual(JSON.parse(cli.stdout).findings.map((item) => item.ruleId), ['changed-invisibly'])
+})
+
+test('a shared name does not acquire a grain conflict from raw entry sort order', async () => {
+  const documents = await oneRegistry(registryDoc([
+    metric({ id: 'a', name: 'revenue', grain: [' x', 'a'] }),
+    metric({ id: 'b', name: 'revenue', grain: ['a', 'x'] }),
+  ]))
+  const report = await checkRegistry(documents)
+
+  assert.deepEqual(ruleIds(report), ['name-differs-invisibly'])
+  assert.equal(report.findings[0].severity, 'warning')
+  assert.equal(report.findings[0].evidence, 'grain: entry 2, at character 1: before U+0020, after U+0078')
+  assert.equal(exitCodeFor(report), 0)
+})
+
+test('changed-grain evidence orders the dimensions as the reader sees them', async () => {
+  const report = await compare(
+    [metric({ id: 'rev', name: 'revenue', grain: [' x', 'a'] })],
+    [metric({ id: 'rev', name: 'revenue', grain: ['a', 'y'] })],
+  )
+
+  assert.deepEqual(ruleIds(report), ['grain-changed-undeclared'])
+  assert.equal(report.findings[0].evidence, '"a", "x" | "a", "y"')
+  assert.equal(exitCodeFor(report), 1)
 })
 
 test('reordering filters is still reported as a reordering, not as a rewrite', async () => {

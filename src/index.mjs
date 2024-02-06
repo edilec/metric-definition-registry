@@ -576,8 +576,9 @@ function validateRegistry(document, file, limits) {
  */
 function renderEntries(entries, limit, ordered) {
   if (entries.length === 0) return 'none'
-  const shown = ordered ? entries : [...entries].sort(byCodeUnit)
-  return shown.map((entry) => JSON.stringify(excerpt(entry, limit))).join(ordered ? ' AND ' : ', ')
+  const shown = entries.map((entry) => excerpt(entry, limit))
+  if (!ordered) shown.sort(byCodeUnit)
+  return shown.map((entry) => JSON.stringify(entry)).join(ordered ? ' AND ' : ', ')
 }
 
 /**

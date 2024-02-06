@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 A rule id is part of the public interface: renaming one is a breaking change and
 is recorded here.
 
+## [Unreleased]
+
+### Fixed
+
+- Align unordered grain and dependency entries by their rendered text before
+  comparing raw spellings. A set such as `[" x", "a"]` versus `["a", "x"]`
+  now reports the invisible spelling difference instead of a false grain
+  change or name-grain conflict. Evidence lists the dimensions in the order
+  readers see them.
+
 ## [0.1.0] - 2026-09-19
 
 ### Added

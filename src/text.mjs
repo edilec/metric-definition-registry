@@ -178,11 +178,21 @@ export function compareAsRendered(left, right, limit) {
  * `ordered` decides whether position carries meaning. A grain and a dependency
  * list are sets, so they are sorted into one canonical order first; a filter
  * list keeps its order, because this tool does not parse a filter expression
- * and so cannot know whether the order matters.
+ * and so cannot know whether the order matters. A set is ordered by its
+ * rendered entries before raw entries are compared: sorting raw `" x"` ahead
+ * of `"a"` would align it with `"a"` rather than with rendered `"x"` and
+ * invent a visible grain change. Raw text breaks ties between entries that
+ * render alike, so a mere permutation of the same raw multiset is still same.
  */
+function alignedEntries(entries, limit, ordered) {
+  if (ordered) return [...entries]
+  return [...entries].sort((left, right) =>
+    byCodeUnit(excerpt(left, limit), excerpt(right, limit)) || byCodeUnit(left, right))
+}
+
 export function compareEntriesAsRendered(left, right, limit, { ordered }) {
-  const before = ordered ? [...left] : [...left].sort(byCodeUnit)
-  const after = ordered ? [...right] : [...right].sort(byCodeUnit)
+  const before = alignedEntries(left, limit, ordered)
+  const after = alignedEntries(right, limit, ordered)
   if (before.length !== after.length) return 'different'
   if (before.every((entry, at) => entry === after[at])) return 'same'
   if (before.every((entry, at) => excerpt(entry, limit) === excerpt(after[at], limit))) return 'stripped-only'
@@ -197,8 +207,10 @@ export function compareEntriesAsRendered(left, right, limit, { ordered }) {
  * text differs is the one to describe.
  */
 export function describeEntryDifference(left, right, { ordered }) {
-  const before = ordered ? [...left] : [...left].sort(byCodeUnit)
-  const after = ordered ? [...right] : [...right].sort(byCodeUnit)
+  // Use the full rendered entry to align the same pair the comparison aligned.
+  // Internal callers have already bounded every raw entry before this point.
+  const before = alignedEntries(left, Number.MAX_SAFE_INTEGER, ordered)
+  const after = alignedEntries(right, Number.MAX_SAFE_INTEGER, ordered)
   let at = 0
   while (at < before.length && before[at] === after[at]) at += 1
   if (at === before.length) return 'the two lists are the same'
