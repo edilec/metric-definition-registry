@@ -638,11 +638,17 @@ function analyseRegistry(registry, file, limits) {
       const grainRelation = compareEntriesAsRendered(first.grain, other.grain, limits.maxFieldLength, { ordered: false })
       if (grainRelation === 'different') {
         conflicted = true
+        const firstShown = renderEntries(first.grain, 60, false)
+        const otherShown = renderEntries(other.grain, 60, false)
+        const hidden = firstShown === otherShown
+        const difference = hidden ? describeEntryDifference(first.grain, other.grain, { ordered: false }) : null
         add({
           ruleId: 'name-grain-conflict',
           pointer,
-          message: `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(first.id, 40))} at grain (${renderEntries(first.grain, 60, false)}) and by ${JSON.stringify(excerpt(other.id, 40))} at grain (${renderEntries(other.grain, 60, false)}); one name cannot mean two grains`,
-          evidence: `${renderEntries(first.grain, 60, false)} | ${renderEntries(other.grain, 60, false)}`,
+          message: hidden
+            ? `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(first.id, 40))} and ${JSON.stringify(excerpt(other.id, 40))} at different grains whose short excerpts match; the difference is at ${difference}; one name cannot mean two grains`
+            : `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(first.id, 40))} at grain (${firstShown}) and by ${JSON.stringify(excerpt(other.id, 40))} at grain (${otherShown}); one name cannot mean two grains`,
+          evidence: hidden ? `grain: ${difference}` : `${firstShown} | ${otherShown}`,
           suggestion: 'give the two definitions different names, or put the grain in the name',
         })
       } else if (grainRelation === 'stripped-only') {
@@ -665,11 +671,17 @@ function analyseRegistry(registry, file, limits) {
       const unitRelation = compareAsRendered(first.unit, other.unit, limits.maxFieldLength)
       if (unitRelation === 'different') {
         conflicted = true
+        const firstShown = excerpt(first.unit, 40)
+        const otherShown = excerpt(other.unit, 40)
+        const hidden = firstShown === otherShown
+        const difference = hidden ? describeCharacterDifference(first.unit, other.unit) : null
         add({
           ruleId: 'name-unit-conflict',
           pointer,
-          message: `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(first.id, 40))} in ${excerpt(first.unit, 40)} and by ${JSON.stringify(excerpt(other.id, 40))} in ${excerpt(other.unit, 40)}`,
-          evidence: `${excerpt(first.unit, 60)} | ${excerpt(other.unit, 60)}`,
+          message: hidden
+            ? `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(first.id, 40))} and ${JSON.stringify(excerpt(other.id, 40))} in different units whose short excerpts match; the difference is ${difference}`
+            : `${JSON.stringify(excerpt(name, 60))} is defined by ${JSON.stringify(excerpt(first.id, 40))} in ${firstShown} and by ${JSON.stringify(excerpt(other.id, 40))} in ${otherShown}`,
+          evidence: hidden ? `unit: ${difference}` : `${excerpt(first.unit, 60)} | ${excerpt(other.unit, 60)}`,
         })
       } else if (unitRelation === 'stripped-only') {
         conflicted = true
@@ -935,14 +947,20 @@ function compareRegistries(previous, current, files, limits) {
       // reordering from a rewrite.
       const reordered = field.entries !== null && field.ordered
         && compareEntriesAsRendered(field.entries(was), field.entries(now), limits.maxFieldLength, { ordered: false }) === 'same'
+      const beforeShown = renderField(field, was, 60)
+      const afterShown = renderField(field, now, 60)
+      const hidden = beforeShown === afterShown
+      const difference = hidden ? describeFieldDifference(field, was, now) : null
       findings.push(finding({
         ruleId: `${field.rule}-${declared ? 'declared' : 'undeclared'}`,
         file: files.registry,
         pointer,
         message: reordered
-          ? `${JSON.stringify(excerpt(id, 60))} lists the same filters in a different order; this tool does not parse a filter expression, so it cannot tell you whether the order matters. definitionVersion ${declared ? 'moved with the change' : 'did not move, so the same version now names two different lists'}`
-          : `${JSON.stringify(excerpt(id, 60))} changed ${field.key} from ${renderField(field, was, 60)} to ${renderField(field, now, 60)}. definitionVersion ${declared ? `moved from ${excerpt(was.definitionVersion, 20)} to ${excerpt(now.definitionVersion, 20)}` : `stayed at ${excerpt(now.definitionVersion, 20)}, so the same version now means two different things`}`,
-        evidence: `${renderField(field, was, 60)} | ${renderField(field, now, 60)}`,
+          ? `${JSON.stringify(excerpt(id, 60))} lists the same filters in a different order; this tool does not parse a filter expression, so it cannot tell you whether the order matters.${hidden ? ` The short excerpts match, but the first reordered position differs at ${difference}.` : ''} definitionVersion ${declared ? 'moved with the change' : 'did not move, so the same version now names two different lists'}`
+          : hidden
+            ? `${JSON.stringify(excerpt(id, 60))} changed ${field.key} beyond the short excerpt; the difference is ${difference}. definitionVersion ${declared ? 'moved with the change' : `stayed at ${excerpt(now.definitionVersion, 20)}, so the same version now means two different things`}`
+            : `${JSON.stringify(excerpt(id, 60))} changed ${field.key} from ${beforeShown} to ${afterShown}. definitionVersion ${declared ? `moved from ${excerpt(was.definitionVersion, 20)} to ${excerpt(now.definitionVersion, 20)}` : `stayed at ${excerpt(now.definitionVersion, 20)}, so the same version now means two different things`}`,
+        evidence: hidden ? `${field.key}: ${difference}` : `${beforeShown} | ${afterShown}`,
         suggestion: declared ? undefined : 'move definitionVersion when the definition moves, so a cached number can be matched to the definition that produced it',
       }))
     }
@@ -951,11 +969,16 @@ function compareRegistries(previous, current, files, limits) {
     if (ownerRelation === 'stripped-only') {
       addInvisible({ id, pointer, what: 'owner', difference: describeCharacterDifference(was.owner, now.owner) })
     } else if (ownerRelation === 'different') {
+      const beforeShown = excerpt(was.owner, 60)
+      const afterShown = excerpt(now.owner, 60)
+      const hidden = beforeShown === afterShown
       findings.push(finding({
         ruleId: 'owner-changed',
         file: files.registry,
         pointer,
-        message: `${JSON.stringify(excerpt(id, 60))} changed owner from ${excerpt(was.owner, 60)} to ${excerpt(now.owner, 60)}`,
+        message: hidden
+          ? `${JSON.stringify(excerpt(id, 60))} changed owner beyond the short excerpt; the difference is ${describeCharacterDifference(was.owner, now.owner)}`
+          : `${JSON.stringify(excerpt(id, 60))} changed owner from ${beforeShown} to ${afterShown}`,
       }))
     }
     if (changed) counts.metricsChanged += 1

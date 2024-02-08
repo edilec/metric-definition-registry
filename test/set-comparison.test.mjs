@@ -116,6 +116,36 @@ test('a grain set reordered across an invisible spelling difference is not a cha
   assert.deepEqual(JSON.parse(cli.stdout).findings.map((item) => item.ruleId), ['changed-invisibly'])
 })
 
+test('a shared-name grain conflict explains a difference hidden by the short excerpt', async () => {
+  const left = `${'x'.repeat(61)}A`
+  const right = `${'x'.repeat(61)}B`
+  const documents = await oneRegistry(registryDoc([
+    metric({ id: 'a', name: 'shared', grain: [left] }),
+    metric({ id: 'b', name: 'shared', grain: [right] }),
+  ]))
+  const report = await checkRegistry(documents)
+  const item = report.findings.find((entry) => entry.ruleId === 'name-grain-conflict')
+  assert.equal(item?.severity, 'error')
+  assert.match(item.message, /character 62: before U\+0041, after U\+0042/)
+  assert.match(item.evidence, /character 62: before U\+0041, after U\+0042/)
+  assert.doesNotMatch(item.message, /at grain \(([^)]*)\) and .* at grain \(\1\)/)
+  assert.equal(exitCodeFor(report), 1)
+})
+
+test('a cross-registry grain change explains a difference hidden by the short excerpt', async () => {
+  const left = `${'x'.repeat(61)}A`
+  const right = `${'x'.repeat(61)}B`
+  const report = await compare(
+    [metric({ id: 'rev', grain: [left] })],
+    [metric({ id: 'rev', grain: [right] })],
+  )
+  const item = report.findings.find((entry) => entry.ruleId === 'grain-changed-undeclared')
+  assert.equal(item?.severity, 'error')
+  assert.match(item.message, /character 62: before U\+0041, after U\+0042/)
+  assert.match(item.evidence, /character 62: before U\+0041, after U\+0042/)
+  assert.equal(exitCodeFor(report), 1)
+})
+
 test('a shared name does not acquire a grain conflict from raw entry sort order', async () => {
   const documents = await oneRegistry(registryDoc([
     metric({ id: 'a', name: 'revenue', grain: [' x', 'a'] }),

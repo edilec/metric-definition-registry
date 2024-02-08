@@ -16,6 +16,9 @@ is recorded here.
   now reports the invisible spelling difference instead of a false grain
   change or name-grain conflict. Evidence lists the dimensions in the order
   readers see them.
+- When a real grain, unit, or other field change occurs beyond the shortened
+  excerpt, name the first differing character or list entry instead of printing
+  identical-looking before and after values at error severity.
 
 ## [0.1.0] - 2026-09-19
 

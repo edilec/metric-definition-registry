@@ -67,6 +67,48 @@ test('a unit that really changed is still an error and still exits 1', async () 
   assert.equal(run.code, 1)
 })
 
+test('a long unit change names the difference beyond its identical excerpts', async () => {
+  const left = `${'x'.repeat(61)}A`
+  const right = `${'x'.repeat(61)}B`
+  const { report } = await compare(
+    [metric({ id: 'rev', unit: left })],
+    [metric({ id: 'rev', unit: right })],
+  )
+  const item = report.findings.find((entry) => entry.ruleId === 'unit-changed-undeclared')
+  assert.equal(item?.severity, 'error')
+  assert.match(item.message, /character 62: before U\+0041, after U\+0042/)
+  assert.match(item.evidence, /character 62: before U\+0041, after U\+0042/)
+  assert.equal(exitCodeFor(report), 1)
+})
+
+test('two long units under one name do not show a false identical conflict', async () => {
+  const left = `${'x'.repeat(61)}A`
+  const right = `${'x'.repeat(61)}B`
+  const documents = await oneRegistry(registryDoc([
+    metric({ id: 'a', name: 'shared', unit: left }),
+    metric({ id: 'b', name: 'shared', unit: right }),
+  ]))
+  const report = await checkRegistry(documents)
+  const item = report.findings.find((entry) => entry.ruleId === 'name-unit-conflict')
+  assert.equal(item?.severity, 'error')
+  assert.match(item.message, /character 62: before U\+0041, after U\+0042/)
+  assert.match(item.evidence, /character 62: before U\+0041, after U\+0042/)
+  assert.equal(exitCodeFor(report), 1)
+})
+
+test('a long owner handover explains the difference beyond its excerpt', async () => {
+  const left = `${'x'.repeat(61)}A`
+  const right = `${'x'.repeat(61)}B`
+  const { report } = await compare(
+    [metric({ id: 'rev', owner: left })],
+    [metric({ id: 'rev', owner: right })],
+  )
+  const item = report.findings.find((entry) => entry.ruleId === 'owner-changed')
+  assert.equal(item?.severity, 'info')
+  assert.match(item.message, /character 62: before U\+0041, after U\+0042/)
+  assert.equal(exitCodeFor(report), 0)
+})
+
 test('a control character reaches the same rule as a trailing space', async () => {
   const { report } = await compare(
     [metric({ id: 'rev', name: 'revenue', formula: 'sum(a)' })],
