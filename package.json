@@ -1,0 +1,51 @@
+{
+  "name": "metric-definition-registry",
+  "version": "0.1.0",
+  "description": "Validate a registry of metric definitions -- formula, grain, filters, unit, aggregation, owner and dependencies -- compare it with the registry before it, and refuse to call a dependency graph acyclic when an edge leaves the evidence.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "for file in bin/*.mjs src/*.mjs test/*.mjs; do node --check \"$file\" || exit 1; done",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=src/**",
+    "example": "node bin/metric-definition-registry.mjs --root examples/valid --registry metrics.2026-07.json --previous metrics.2026-04.json",
+    "example:failing": "node bin/metric-definition-registry.mjs --root examples/conflicts --registry metrics.json; test $? -eq 1",
+    "pack:check": "npm pack --dry-run",
+    "check": "npm run lint && npm test && npm run example && npm run example:failing && npm run pack:check"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edilec/metric-definition-registry.git"
+  },
+  "bin": {
+    "metric-definition-registry": "./bin/metric-definition-registry.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "examples",
+    "docs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "metrics",
+    "semantic-layer",
+    "data-contract",
+    "registry",
+    "static-analysis",
+    "cli"
+  ],
+  "author": "Edilec Private Limited",
+  "bugs": {
+    "url": "https://github.com/edilec/metric-definition-registry/issues"
+  },
+  "homepage": "https://github.com/edilec/metric-definition-registry#readme"
+}

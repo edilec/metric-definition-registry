@@ -1,0 +1,29 @@
+{
+  "registryVersion": "1",
+  "metrics": [
+    {
+      "id": "orders_gross_daily",
+      "name": "gross orders",
+      "grain": ["date"],
+      "aggregation": "sum",
+      "unit": "EUR",
+      "formula": "sum(order_total)",
+      "filters": ["order_status = 'placed'"],
+      "owner": "analytics-platform",
+      "dependsOn": [],
+      "definitionVersion": "1"
+    },
+    {
+      "id": "orders_net_daily",
+      "name": "net orders",
+      "grain": ["date"],
+      "aggregation": "sum",
+      "unit": "EUR",
+      "formula": "orders_gross_daily - sum(refund_total)",
+      "filters": ["order_status = 'placed'"],
+      "owner": "analytics-platform",
+      "dependsOn": ["orders_gross_daily"],
+      "definitionVersion": "2"
+    }
+  ]
+}
