@@ -318,6 +318,11 @@ This tool does not, and will not without a deliberate decision:
   takes part in any cycle.
 - **Write anything.** No `--out`, no directory creation, no auto-fix.
 
+For the broader architecture and ownership decisions around shared metrics,
+read Edilec's [semantic layer engineering guide](https://edilec.com/blog/km-data-0039/how-engineering-teams-should-think-about-semantic-layers/).
+This CLI checks declared local JSON definitions; it does not implement or test
+an executable semantic layer.
+
 ## Verification
 
 ```sh
