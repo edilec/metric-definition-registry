@@ -40,19 +40,29 @@ no file, so no destination check applies to it.
 
 ## Quick start
 
+This package is not published to the npm registry. From a checkout of this
+repository, run the public fixtures with the checked-in CLI:
+
 ```sh
 # A registry that is in order, compared with the one before it.
-npx metric-definition-registry \
+node bin/metric-definition-registry.mjs \
   --root examples/valid \
   --registry metrics.2026-07.json \
   --previous metrics.2026-04.json
 # exit 0
 
 # A registry with a name two definitions disagree about and a dependency cycle.
-npx metric-definition-registry \
+node bin/metric-definition-registry.mjs \
   --root examples/conflicts \
   --registry metrics.json
 # exit 1
+```
+
+To run it from another project, npm can fetch the public GitHub source directly.
+Pass paths from that project's working directory:
+
+```sh
+npm exec --yes --package=git+https://github.com/edilec/metric-definition-registry.git -- metric-definition-registry --help
 ```
 
 `stdout` carries the JSON report and nothing else, so it pipes straight into a
