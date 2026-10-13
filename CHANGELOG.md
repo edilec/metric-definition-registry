@@ -7,7 +7,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 A rule id is part of the public interface: renaming one is a breaking change and
 is recorded here.
 
-## [Unreleased]
+## [0.1.0] - 2026-10-14
 
 ### Fixed
 
@@ -20,7 +20,7 @@ is recorded here.
   excerpt, name the first differing character or list entry instead of printing
   identical-looking before and after values at error severity.
 
-## [0.1.0] - 2026-09-19
+Initial implementation (recorded 2026-09-19):
 
 ### Added
 
